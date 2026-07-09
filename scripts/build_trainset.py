@@ -58,8 +58,9 @@ bkz. Faz 2 planı REVİZE disk kuralı — tam materyalizasyon Colab'da, bkz. da
   ikisi de AYNI boyuta) data/raw_train/trans460_train/{fg,alpha}/ altına yazıldı
   (toplam ~22MB). Tam TRAIN seti (orijinal çözünürlükte) Colab'da indirilecek.
 """
+import argparse
 import random
-import sys
+import shutil
 from pathlib import Path
 
 from build_testset import _sanitize, classify_disvd  # noqa: E402  (aynı dizin, scripts/)
@@ -73,17 +74,27 @@ OUT_GT = ROOT / "data/train/gt"
 MANIFEST = ROOT / "data/train/manifest.jsonl"
 
 
-def _link(src: Path, dst: Path) -> None:
-    """dst -> src sembolik bağlantısı oluşturur (kopya YOK; disk tasarrufu)."""
+def _link(src: Path, dst: Path, copy: bool = False) -> None:
+    """dst -> src sembolik bağlantısı oluşturur (varsayılan; kopya YOK, disk tasarrufu).
+
+    copy=True ise gerçek dosya KOPYALANIR — Colab'da tam veri materyalizasyonu için
+    (bkz. training/prepare_data_colab.ipynb): sembolik bağlantı Drive'a taşıma/zip
+    sırasında hedefi (Colab'ın geçici /content diskini) kaybedip kırılabilir; kopya
+    böyle bir kırılganlık taşımaz.
+    """
     if dst.exists() or dst.is_symlink():
         dst.unlink()
-    dst.symlink_to(src.resolve())
+    if copy:
+        shutil.copy2(src.resolve(), dst)
+    else:
+        dst.symlink_to(src.resolve())
 
 
 def sample_source(name: str, img_glob: str, gt_glob: str, category: str,
-                   n: int | None = None) -> list[dict]:
+                   n: int | None = None, copy: bool = False) -> list[dict]:
     """Bir kaynaktan (img_glob/gt_glob stem'e göre eşleştirilir) örnekle ve
-    `data/train/{images,gt}/` altına symlink'le. n=None -> tüm eşleşen çiftler."""
+    `data/train/{images,gt}/` altına symlink'le (copy=True -> gerçek dosya kopyala).
+    n=None -> tüm eşleşen çiftler."""
     imgs = sorted(ROOT.glob(img_glob))
     gts = {p.stem: p for p in ROOT.glob(gt_glob)}
     paired = [(i, gts[i.stem]) for i in imgs if i.stem in gts]
@@ -95,15 +106,15 @@ def sample_source(name: str, img_glob: str, gt_glob: str, category: str,
         rid = f"{name}_{_sanitize(img.stem)}"
         dst_i = OUT_IMG / f"{rid}{img.suffix}"
         dst_g = OUT_GT / f"{rid}{gt.suffix}"
-        _link(img, dst_i)
-        _link(gt, dst_g)
+        _link(img, dst_i, copy=copy)
+        _link(gt, dst_g, copy=copy)
         rows.append({"id": rid, "image": str(dst_i.relative_to(ROOT)),
                      "category": category, "gt_alpha": str(dst_g.relative_to(ROOT))})
     return rows
 
 
 def sample_disvd_tokens(name: str, img_glob: str, gt_glob: str,
-                         n: int | None = None) -> list[dict]:
+                         n: int | None = None, copy: bool = False) -> list[dict]:
     """DIS5K havuzundan örnekle; kategori dosya adı token'ından (classify_disvd,
     build_testset.py'den yeniden kullanılır) atanır — rastgele dağıtım YOKTUR."""
     imgs = sorted(ROOT.glob(img_glob))
@@ -120,8 +131,8 @@ def sample_disvd_tokens(name: str, img_glob: str, gt_glob: str,
         rid = f"{name}_{category}_{sanitized_stem}"
         dst_i = OUT_IMG / f"{rid}{img.suffix}"
         dst_g = OUT_GT / f"{rid}{gt.suffix}"
-        _link(img, dst_i)
-        _link(gt, dst_g)
+        _link(img, dst_i, copy=copy)
+        _link(gt, dst_g, copy=copy)
         rows.append({"id": rid, "image": str(dst_i.relative_to(ROOT)),
                      "category": category, "gt_alpha": str(dst_g.relative_to(ROOT))})
     return rows
@@ -149,15 +160,15 @@ DIS5KTR_GT_GLOB = "data/raw_train/dis5k/gt/*"
 DIS5KTR_N = 100
 
 
-def build() -> None:
+def build(copy: bool = False) -> None:
     OUT_IMG.mkdir(parents=True, exist_ok=True)
     OUT_GT.mkdir(parents=True, exist_ok=True)
     for src in SOURCES:
-        rows = sample_source(*src)
+        rows = sample_source(*src, copy=copy)
         append_entries(str(MANIFEST), rows)
         print(f"{src[0]} ({src[3]}): {len(rows)} örnek")
 
-    rows = sample_disvd_tokens("dis5ktr", DIS5KTR_IMG_GLOB, DIS5KTR_GT_GLOB, DIS5KTR_N)
+    rows = sample_disvd_tokens("dis5ktr", DIS5KTR_IMG_GLOB, DIS5KTR_GT_GLOB, DIS5KTR_N, copy=copy)
     append_entries(str(MANIFEST), rows)
     counts: dict[str, int] = {}
     for r in rows:
@@ -166,23 +177,34 @@ def build() -> None:
         print(f"dis5ktr ({category}): {count} örnek")
 
 
-def add_source(name: str) -> None:
+def add_source(name: str, copy: bool = False) -> None:
     """SOURCES'taki tek bir kaynağı örnekle ve manifest'e ekle (artımlı ekleme)."""
     matches = [s for s in SOURCES if s[0] == name]
     if not matches:
         raise SystemExit(f"bilinmeyen kaynak: {name} (SOURCES: {[s[0] for s in SOURCES]})")
-    rows = sample_source(*matches[0])
+    rows = sample_source(*matches[0], copy=copy)
     append_entries(str(MANIFEST), rows)
     print(f"{name} ({matches[0][3]}): {len(rows)} örnek eklendi")
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("command", nargs="?", choices=["source"], default=None,
+                         help="belirtilirse tek bir kaynağı ekler (bkz. --name)")
+    parser.add_argument("name", nargs="?", default=None, help="'source' komutu için kaynak adı")
+    parser.add_argument("--copy", action="store_true",
+                         help="symlink yerine gerçek dosya kopyala (Colab'da tam veri "
+                              "materyalizasyonu için; lokalde varsayılan symlink kalır)")
+    args = parser.parse_args()
+
     OUT_IMG.mkdir(parents=True, exist_ok=True)
     OUT_GT.mkdir(parents=True, exist_ok=True)
-    if len(sys.argv) >= 3 and sys.argv[1] == "source":
-        add_source(sys.argv[2])
+    if args.command == "source":
+        if not args.name:
+            raise SystemExit("kullanım: build_trainset.py source <ad> [--copy]")
+        add_source(args.name, copy=args.copy)
     else:
-        build()
+        build(copy=args.copy)
 
 
 if __name__ == "__main__":

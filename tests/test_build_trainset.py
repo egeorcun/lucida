@@ -119,3 +119,62 @@ def test_add_source_appends_known_source(fake_root, monkeypatch):
 def test_add_source_unknown_raises(fake_root):
     with pytest.raises(SystemExit):
         bt.add_source("nope")
+
+
+def test_sample_source_default_mode_uses_symlinks(fake_root):
+    rows = bt.sample_source("fake", fake_root["img_glob"], fake_root["gt_glob"], "product", 2)
+    for row in rows:
+        assert (bt.ROOT / row["image"]).is_symlink()
+        assert (bt.ROOT / row["gt_alpha"]).is_symlink()
+
+
+def test_sample_source_copy_mode_creates_real_files_not_symlinks(fake_root):
+    """Colab'da tam veri materyalizasyonu için --copy: symlink yerine gerçek dosya
+    (Drive'a taşıma/zip sırasında link kırılmaz)."""
+    rows = bt.sample_source(
+        "fake", fake_root["img_glob"], fake_root["gt_glob"], "product", 2, copy=True
+    )
+    assert len(rows) == 2
+    for row in rows:
+        dst_i = bt.ROOT / row["image"]
+        dst_g = bt.ROOT / row["gt_alpha"]
+        assert not dst_i.is_symlink()
+        assert not dst_g.is_symlink()
+        assert dst_i.is_file()
+        assert dst_g.is_file()
+        Image.open(dst_i).verify()
+
+
+def test_sample_disvd_tokens_copy_mode_creates_real_files(tmp_path, monkeypatch):
+    src_img = tmp_path / "raw" / "im"
+    src_gt = tmp_path / "raw" / "gt"
+    stem = "20#Sports#8#Racket#1234_abcd_o"
+    _make_pair(src_img, src_gt, stem)
+
+    out_img = tmp_path / "train" / "images"
+    out_gt = tmp_path / "train" / "gt"
+    manifest = tmp_path / "train" / "manifest.jsonl"
+    out_img.mkdir(parents=True)
+    out_gt.mkdir(parents=True)
+    monkeypatch.setattr(bt, "ROOT", tmp_path)
+    monkeypatch.setattr(bt, "OUT_IMG", out_img)
+    monkeypatch.setattr(bt, "OUT_GT", out_gt)
+    monkeypatch.setattr(bt, "MANIFEST", manifest)
+
+    rows = bt.sample_disvd_tokens("dis5ktr", "raw/im/*", "raw/gt/*", n=1, copy=True)
+    assert len(rows) == 1
+    assert not (bt.ROOT / rows[0]["image"]).is_symlink()
+    assert (bt.ROOT / rows[0]["image"]).is_file()
+
+
+def test_add_source_copy_mode_threads_through(fake_root, monkeypatch):
+    monkeypatch.setattr(
+        bt,
+        "SOURCES",
+        [("fake", fake_root["img_glob"], fake_root["gt_glob"], "product", 2)],
+    )
+    bt.add_source("fake", copy=True)
+    loaded = load_manifest(str(fake_root["manifest"]))
+    assert len(loaded) == 2
+    for row in loaded:
+        assert not (bt.ROOT / row["image"]).is_symlink()
