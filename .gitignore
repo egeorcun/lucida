@@ -3,6 +3,7 @@ __pycache__/
 *.pyc
 data/*
 !data/.gitkeep
+!data/testset/manifest.jsonl
 results/*
 !results/.gitkeep
 .env
