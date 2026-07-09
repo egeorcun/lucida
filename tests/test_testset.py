@@ -15,6 +15,15 @@ def test_roundtrip(tmp_path):
     assert load_manifest(str(p)) == rows
 
 
+def test_camouflage_category_is_valid(tmp_path):
+    p = tmp_path / "m.jsonl"
+    rows = [
+        {"id": "cod1", "image": "data/x/cod1.jpg", "category": "camouflage", "gt_alpha": "data/x/cod1.png"},
+    ]
+    append_entries(str(p), rows)
+    assert load_manifest(str(p)) == rows
+
+
 def test_invalid_category_raises(tmp_path):
     p = tmp_path / "m.jsonl"
     p.write_text(json.dumps({"id": "x", "image": "i.jpg", "category": "ucan-kus", "gt_alpha": None}) + "\n")

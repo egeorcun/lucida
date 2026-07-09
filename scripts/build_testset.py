@@ -14,6 +14,17 @@ Ham veri edinimi (data/raw/ altına, git dışı):
   byte'ları PIL ile data/raw/dis5k/DIS-VD/{im,gt}/ altına dosya olarak yazıldı (470 çift,
   pyarrow gerekir). Ham dosya adları '<grupIdx>#<Grup>#<sınıfIdx>#<Sınıf>#<orijinalAd>'
   biçimindedir (ör. '1#Accessories#5#Jewelry#12836143775_...').
+- CAMO (camouflage kategorisi): Faz 2 Task 1 için COD10K test split'i HF'de aranmış
+  (HfApi().list_datasets/list_repo_files: "Chranos/COD10K_train", "Jrseee/COD10K" boş
+  repo/LFS işaretçisiz; "chandrabhuma/animal_cod10k" gerçek COD10K-CAM-Test görsellerini
+  (2026 örnek, id'ler "COD10K-CAM-..." önekli) içeriyor ama yalnız görsel+soru-cevap,
+  piksel seviyeli GT maske YOK; resmi kaynak (SINet/DengPingFan) yalnız Google Drive
+  üzerinden ve bu ortamda gdown/kaggle kimlik bilgisi yok). Bunun yerine HF dataset
+  "nobg/camo" kullanıldı: resmi CAMO (Camouflaged Object, Le et al.) test split'i,
+  image+mask parquet (250 çift, ~61MB) -> data/raw/camo_test/{im,gt}/ altına PIL ile
+  dosya olarak yazıldı. CAMO, bu projenin Faz 2 planında da (Task 2) COD10K-TR'nin
+  yanında kabul edilen bir kamuflaj kaynağıdır; "camouflage" kategorisi için COD10K
+  yerine kullanılması raporda belgelenmiştir.
 
 NOT (final review düzeltmesi): DIS-VD satırları ilk halde thin/complex/general'e
 RASTGELE dağıtılmıştı (bkz. git geçmişi). scripts/relabel_disvd.py bunu tek seferlik
@@ -46,6 +57,7 @@ SOURCES: list[tuple[str, str, str, str, int]] = [
     ("p3m", "data/raw/p3m10k/validation/P3M-500-NP/original_image/*.jpg",
      "data/raw/p3m10k/validation/P3M-500-NP/mask/*.png", "hair", 40),
     ("trans460", "data/raw/trans460/Test/fg/*", "data/raw/trans460/Test/alpha/*", "transparent", 25),
+    ("camo", "data/raw/camo_test/im/*", "data/raw/camo_test/gt/*", "camouflage", 25),
 ]
 
 # DIS-VD tek havuzdan örneklenir; kategori dosya adı token'ından atanır (bkz. classify_disvd).
@@ -182,11 +194,24 @@ def build() -> None:
         print(f"disvd ({category}): {count} örnek")
 
 
+def add_source(name: str) -> None:
+    """SOURCES'taki tek bir kaynağı örnekle ve manifest'e ekle (mevcut satırları
+    yeniden eklemeden; build() sıfırdan derleme, bu ise ARTIMLI ekleme içindir)."""
+    matches = [s for s in SOURCES if s[0] == name]
+    if not matches:
+        raise SystemExit(f"bilinmeyen kaynak: {name} (SOURCES: {[s[0] for s in SOURCES]})")
+    rows = sample_source(*matches[0])
+    append_entries(str(MANIFEST), rows)
+    print(f"{name} ({matches[0][3]}): {len(rows)} örnek eklendi")
+
+
 def main() -> None:
     OUT_IMG.mkdir(parents=True, exist_ok=True)
     OUT_GT.mkdir(parents=True, exist_ok=True)
     if len(sys.argv) >= 4 and sys.argv[1] == "add":
         add_unlabeled(sys.argv[2], sys.argv[3])
+    elif len(sys.argv) >= 3 and sys.argv[1] == "source":
+        add_source(sys.argv[2])
     else:
         build()
 
