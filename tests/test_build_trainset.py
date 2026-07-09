@@ -121,6 +121,41 @@ def test_add_source_unknown_raises(fake_root):
         bt.add_source("nope")
 
 
+def test_sample_source_gt_stem_suffix_strips_before_pairing(tmp_path, monkeypatch):
+    """HIM2K gibi kaynaklarda GT dosyası '<stem>_matte.png', görsel '<stem>.jpg' —
+    varsayılan (birebir stem) eşleştirme bunu HİÇ yakalamaz (0 çift); gt_stem_suffix
+    ile GT stem'inden son ek atılıp eşleştirme kurulmalı."""
+    src_img = tmp_path / "raw" / "im"
+    src_gt = tmp_path / "raw" / "gt"
+    src_img.mkdir(parents=True)
+    src_gt.mkdir(parents=True)
+    for stem in ("foo", "bar"):
+        Image.new("RGB", (4, 4), "red").save(src_img / f"{stem}.jpg")
+        Image.new("L", (4, 4), 128).save(src_gt / f"{stem}_matte.png")
+
+    out_img = tmp_path / "train" / "images"
+    out_gt = tmp_path / "train" / "gt"
+    manifest = tmp_path / "train" / "manifest.jsonl"
+    out_img.mkdir(parents=True)
+    out_gt.mkdir(parents=True)
+    monkeypatch.setattr(bt, "ROOT", tmp_path)
+    monkeypatch.setattr(bt, "OUT_IMG", out_img)
+    monkeypatch.setattr(bt, "OUT_GT", out_gt)
+    monkeypatch.setattr(bt, "MANIFEST", manifest)
+
+    # Varsayılan (gt_stem_suffix yok): 0 çift, çünkü "foo" != "foo_matte".
+    rows_default = bt.sample_source("him2k", "raw/im/*", "raw/gt/*", "general")
+    assert rows_default == []
+
+    # gt_stem_suffix="_matte": GT stem'inden son ek atılır, 2 çift eşleşir.
+    rows = bt.sample_source("him2k", "raw/im/*", "raw/gt/*", "general", gt_stem_suffix="_matte")
+    assert len(rows) == 2
+    for row in rows:
+        assert row["category"] == "general"
+        dst_g = bt.ROOT / row["gt_alpha"]
+        assert dst_g.resolve().name.endswith("_matte.png")
+
+
 def test_sample_source_default_mode_uses_symlinks(fake_root):
     rows = bt.sample_source("fake", fake_root["img_glob"], fake_root["gt_glob"], "product", 2)
     for row in rows:

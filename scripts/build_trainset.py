@@ -91,12 +91,24 @@ def _link(src: Path, dst: Path, copy: bool = False) -> None:
 
 
 def sample_source(name: str, img_glob: str, gt_glob: str, category: str,
-                   n: int | None = None, copy: bool = False) -> list[dict]:
+                   n: int | None = None, copy: bool = False, *,
+                   gt_stem_suffix: str | None = None) -> list[dict]:
     """Bir kaynaktan (img_glob/gt_glob stem'e göre eşleştirilir) örnekle ve
     `data/train/{images,gt}/` altına symlink'le (copy=True -> gerçek dosya kopyala).
-    n=None -> tüm eşleşen çiftler."""
+    n=None -> tüm eşleşen çiftler.
+
+    gt_stem_suffix: bazı kaynaklarda GT dosya adı görselin stem'ine sabit bir ek
+    taşır (ör. HIM2K: "foo.jpg" <-> "foo_matte.png") — varsayılan eşleştirme (aynı
+    stem) bu durumda HİÇBİR ZAMAN eşleşmez (sessizce 0 çift). Dolu verilirse GT
+    stem'inden bu ek atılıp öyle eşleştirilir; None (varsayılan) -> mevcut davranış
+    (birebir aynı stem) değişmeden kalır."""
     imgs = sorted(ROOT.glob(img_glob))
-    gts = {p.stem: p for p in ROOT.glob(gt_glob)}
+    gts: dict[str, Path] = {}
+    for p in ROOT.glob(gt_glob):
+        stem = p.stem
+        if gt_stem_suffix and stem.endswith(gt_stem_suffix):
+            stem = stem[: -len(gt_stem_suffix)]
+        gts[stem] = p
     paired = [(i, gts[i.stem]) for i in imgs if i.stem in gts]
     if n is not None and n < len(paired):
         paired = random.sample(paired, n)
