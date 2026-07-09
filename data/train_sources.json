@@ -1,0 +1,57 @@
+{
+  "_comment": "Faz 2 eğitim veri kaynakları. Colab'daki training/prepare_data_colab.ipynb (Task 5) bu dosyayı tam indirme için okuyacak; lokal ortamda yalnız küçük doğrulama örneklemleri (data/raw_train/, ≤300MB/kaynak) çekildi. category_rule: 'fixed:<kategori>' sabit kategori, 'disvd_tokens' dosya adı token'ından classify_disvd (scripts/build_testset.py) ile thin/complex atanır.",
+  "sources": [
+    {
+      "name": "dis5k_tr",
+      "description": "DIS5K TRAIN split (Highly Accurate Dichotomous Image Segmentation, Qin et al. ECCV 2022) — karmaşık/ince yapılı genel objeler.",
+      "hf_repo": "nobg/DIS5K",
+      "hf_repo_type": "dataset",
+      "split_patterns": ["data/DIS_TR-*.parquet"],
+      "official_url": "https://github.com/xuebinqin/DIS",
+      "drive_id": null,
+      "category_rule": "disvd_tokens",
+      "license_note": "DIS5K Dataset Terms of Use (repo içinde 'DIS5K Dataset Terms of Use.pdf') — araştırma/kişisel kullanım serbest; ticari/yeniden dağıtım için proje sahipleriyle iletişim önerilir. MIT paylaşılacak fine-tune modeli için research-only not düşülmeli.",
+      "approx_size_gb": 3.09,
+      "full_pair_count": 3000,
+      "local_sample": {
+        "path": "data/raw_train/dis5k",
+        "pair_count": 100,
+        "method": "huggingface_hub.HfFileSystem (fsspec HTTP range request) + pyarrow.parquet.ParquetFile.read_row_group(0) — yalnız DIS_TR-00000-of-00006 parçasının 0. row-group'u (100 satır, ~120MB) kısmi okundu; tüm parquet (~3GB) İNDİRİLMEDİ."
+      }
+    },
+    {
+      "name": "camo_tr",
+      "description": "CAMO TRAIN split (Anabranch Network for Camouflaged Object Segmentation, Le et al. 2019) — kamuflajlı obje.",
+      "hf_repo": "nobg/camo",
+      "hf_repo_type": "dataset",
+      "split_patterns": ["data/train-00000-of-00001.parquet"],
+      "official_url": "https://sites.google.com/view/ltnghia/research/camo",
+      "drive_id": null,
+      "category_rule": "fixed:camouflage",
+      "license_note": "CC-BY-NC-SA 4.0 (Le et al. 2019). MIT paylaşılacak fine-tune modeli için research-only not düşülmeli; ticari kullanım CAMO lisansıyla uyumsuz.",
+      "approx_size_gb": 0.22,
+      "full_pair_count": 1000,
+      "local_sample": {
+        "path": "data/raw_train/camo",
+        "pair_count": 100,
+        "method": "HfFileSystem + pyarrow read_row_group(0, columns=['image_name','image','mask']) — overlaid_mask_1/2 kolonları HARİÇ tutuldu (column pruning); ilk 100 satır (~18MB) yazıldı."
+      }
+    },
+    {
+      "name": "cod10k_tr",
+      "description": "COD10K TRAIN split (Camouflaged Object Detection, Fan et al. CVPR 2020, SINet) — 78 kamuflaj sınıfı, en büyük COD eğitim kaynağı.",
+      "hf_repo": null,
+      "hf_repo_type": null,
+      "split_patterns": [],
+      "official_url": "https://github.com/DengPingFan/SINet",
+      "drive_id": "1D9bf1KeeCJsxxri6d2qAC7z6O1X_fxpt",
+      "download_method": "gdown --id 1D9bf1KeeCJsxxri6d2qAC7z6O1X_fxpt (yalnız Colab'da; bu lokal ortamda Google Drive kimlik doğrulaması/gdown erişimi yok). Alternatif: Baidu Pan (fetch kodu djq2).",
+      "category_rule": "fixed:camouflage",
+      "license_note": "Araştırma amaçlı serbest dağıtım (SINet/COD10K resmi kaynak); ticari kullanım için proje sahipleriyle iletişime geçilmesi önerilir. MIT paylaşılacak fine-tune modeli için research-only not düşülmeli.",
+      "approx_size_gb": 1.7,
+      "full_pair_count": 3040,
+      "local_sample": null,
+      "local_sample_note": "HF'de piksel-seviyeli GT maskeli TRAIN mirror'ı bulunamadı: 'Chranos/COD10K_train' ve 'Jrseee/COD10K' boş/LFS işaretçisiz repo; 'chandrabhuma/animal_cod10k' ve 'chandrabhuma/animal_cod10k_train' yalnız görsel+soru-cevap (piksel maskesi yok); bu görev sırasında ayrıca aranan 'SmallDoge/CoD-10K' alakasız bir metin/kod veri seti ('CoD' isim çakışması — 9999 satırlık 'Chain of Draft' tipi prompt/solution korpüsü, camouflage ile ilgisi yok). Bu yüzden lokal doğrulama örneklemi ATLANDI (görev talimatı: mirror yoksa atla, nota geç); tam set Colab'da gdown ile indirilecek."
+    }
+  ]
+}

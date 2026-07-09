@@ -4,6 +4,7 @@ __pycache__/
 data/*
 !data/.gitkeep
 !data/testset/manifest.jsonl
+!data/train_sources.json
 results/*
 !results/.gitkeep
 .env
