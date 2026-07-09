@@ -432,8 +432,17 @@ def stage4_build_manifest(cod10k_info: dict | None, him2k_count: int) -> dict:
 
     # cod10ktr — Stage 2'de keşfedilen gerçek img/gt dizinlerinden.
     if cod10k_info:
-        img_glob = str(cod10k_info["img_dir"].relative_to(bt.ROOT)) + "/*"
-        gt_glob = str(cod10k_info["gt_dir"].relative_to(bt.ROOT)) + "/*"
+        # Keşif göreli yol döndürebilir; köke göre çöz, sonra görelileştir.
+        root = Path(bt.ROOT).resolve()
+
+        def _rel(p) -> str:
+            rp = Path(p)
+            if not rp.is_absolute():
+                rp = root / rp
+            return str(rp.resolve().relative_to(root))
+
+        img_glob = _rel(cod10k_info["img_dir"]) + "/*"
+        gt_glob = _rel(cod10k_info["gt_dir"]) + "/*"
         _run("cod10ktr", img_glob, gt_glob, "camouflage")
     else:
         counts["cod10ktr"] = 0
