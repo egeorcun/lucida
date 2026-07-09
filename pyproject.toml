@@ -23,6 +23,7 @@ dev = ["pytest>=8"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = ["slow: gerçek model yükleyen yavaş testler"]
 
 [tool.uv]
 package = false
