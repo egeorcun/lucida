@@ -92,6 +92,32 @@ def test_compose_output_dtype(fg_alpha, bg):
     assert out_alpha.min() >= 0.0 and out_alpha.max() <= 1.0
 
 
+def _bbox(mask: np.ndarray) -> tuple[int, int, int, int]:
+    ys, xs = np.nonzero(mask)
+    return int(ys.min()), int(ys.max()), int(xs.min()), int(xs.max())
+
+
+def test_compose_alpha_and_rgb_colocated_under_random_placement():
+    """Gerçek rastgele yol (varsayılan scale_range, bg > fg): alpha>0 bounding box'ı,
+    çıktı rgb'de arka plan renginden sapan piksellerin bounding box'ıyla BİREBİR aynı
+    olmalı — yani RGB'nin yapıştırıldığı bölge ile alpha bölgesi aynı yere düşmeli."""
+    fg = _solid(32, 32, (255, 0, 255))  # magenta fg
+    alpha = np.zeros((32, 32), dtype=np.float32)
+    alpha[4:28, 2:26] = 1.0  # asimetrik iç dikdörtgen
+    bg_color = (128, 128, 128)
+    for seed in range(5):
+        bg = _solid(80, 96, bg_color)  # bg fg'den BÜYÜK, her turda taze kopya
+        rgb, out_alpha = compose(fg, alpha, bg, np.random.default_rng(seed))
+        alpha_mask = out_alpha > 0
+        rgb_diff_mask = np.any(rgb != np.array(bg_color, dtype=np.uint8), axis=-1)
+        assert alpha_mask.any(), f"seed={seed}: alpha tamamen boş"
+        assert rgb_diff_mask.any(), f"seed={seed}: rgb'de fg izi yok"
+        assert _bbox(alpha_mask) == _bbox(rgb_diff_mask), (
+            f"seed={seed}: alpha bölgesi {_bbox(alpha_mask)} != rgb yapıştırma bölgesi "
+            f"{_bbox(rgb_diff_mask)}"
+        )
+
+
 # ---------------------------------------------------------------------------
 # augment()
 # ---------------------------------------------------------------------------

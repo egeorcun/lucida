@@ -142,6 +142,43 @@ def test_run_idempotent_skips_existing(env):
     assert len(loaded) == total1  # manifest'te tekrar/duplicate yok
 
 
+def test_partial_then_resume_matches_full_run(env):
+    """Kesinti simülasyonu: tam koşu sonrası çıktının YARISI (dosyalar + manifest
+    satırları) silinir ve yeniden koşulur. Devam koşusu, kesintisiz tam koşuyla
+    bit-birebir aynı dosyaları üretmeli (SeedSequence alt-seed'leri sıradan bağımsız)."""
+    dir_full = env["out"] / "full"
+    dir_resume = env["out"] / "resume"
+    mc.run(env["manifest"], env["backgrounds"], per_image=1, seed=42, out_dir=dir_full)
+    mc.run(env["manifest"], env["backgrounds"], per_image=1, seed=42, out_dir=dir_resume)
+
+    # yarıyı sil: manifest'ten her ikinci satır + o satırların dosyaları
+    resume_manifest = dir_resume / "manifest.jsonl"
+    rows = load_manifest(str(resume_manifest))
+    keep, drop = rows[::2], rows[1::2]
+    assert drop, "test anlamlı değil: silinecek satır yok"
+    for row in drop:
+        Path(row["image"]).unlink()
+        Path(row["gt_alpha"]).unlink()
+    resume_manifest.unlink()
+    append_entries(str(resume_manifest), keep)
+
+    # devam koşusu: yalnız silinenler yeniden üretilmeli
+    counts = mc.run(env["manifest"], env["backgrounds"], per_image=1, seed=42, out_dir=dir_resume)
+    assert sum(counts.values()) == len(drop)
+
+    full_rows = {r["id"]: r for r in load_manifest(str(dir_full / "manifest.jsonl"))}
+    resume_rows = {r["id"]: r for r in load_manifest(str(resume_manifest))}
+    assert full_rows.keys() == resume_rows.keys()
+    for rid, full_row in full_rows.items():
+        resume_row = resume_rows[rid]
+        assert Path(full_row["image"]).read_bytes() == Path(resume_row["image"]).read_bytes(), (
+            f"{rid}: devam koşusu image'ı tam koşudan farklı"
+        )
+        assert Path(full_row["gt_alpha"]).read_bytes() == Path(resume_row["gt_alpha"]).read_bytes(), (
+            f"{rid}: devam koşusu gt'si tam koşudan farklı"
+        )
+
+
 def test_run_limit_caps_source_rows(env):
     counts = mc.run(env["manifest"], env["backgrounds"], per_image=1, seed=42, out_dir=env["out"], limit=1)
     assert sum(counts.values()) < 2 + 4 + 1
