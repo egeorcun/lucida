@@ -7,16 +7,21 @@ klonladıktan sonra `sys.path`'e ekleyip import eder (`scripts/` için kullanıl
 hücre (d) notu) — mantık notebook içine kopyalanıp tekrar yazılmaz, drift riski
 böylece ortadan kalkar.
 
-Dört bağımsız endişe kapsar:
+Altı bağımsız endişe kapsar:
 1. Kategori ağırlıklı örnekleme (`compute_sample_weights` / `compute_expected_shares`)
    — `torch.utils.data.WeightedRandomSampler`'a beslenecek ağırlıkları hesaplar.
 2. Checkpoint keşfi/budama (`find_latest_checkpoint` / `prune_old_checkpoints`)
    — Colab oturum kopması sonrası otomatik devam + Drive disk kotasını sınırlama.
-3. Deterministik TRAIN/VAL bölünmesi + sabit hızlı-değerlendirme alt kümesi
-   (`deterministic_val_split` / `fixed_eval_subset`).
+3. Deterministik + KALICI TRAIN/VAL bölünmesi (`deterministic_val_split` /
+   `load_or_create_val_split`) + sabit hızlı-değerlendirme alt kümesi
+   (`fixed_eval_subset`).
 4. BiRefNet resmi `train.py`/`config.py` mantığının iki küçük parçasının yeniden
    üretimi (`should_apply_finetune_reweight`, `effective_lr`) — bkz. modül
    içindeki fonksiyon docstring'lerinde satır bazlı referanslar.
+5. BiRefNet `config.py` metin yaması (`apply_config_patches`) — İDEMPOTENT
+   (aynı VM'de notebook'un yeniden koşturulması patlamamalı).
+6. Drive→yerel disk veri kopyalama (`copy_pairs`) — hem im hem gt dosya boyutu
+   doğrulamalı (yarım kalmış/kesilmiş kopyalar onarılır).
 """
 from __future__ import annotations
 
@@ -181,6 +186,41 @@ def deterministic_val_split(all_stems: list[str], seed: int, val_fraction: float
     return train, val
 
 
+def load_or_create_val_split(
+    all_stems: list[str], seed: int, val_fraction: float, persist_path: str | Path
+) -> tuple[list[str], list[str]]:
+    """`deterministic_val_split`'in KALICI hali: ilk koşuda bölünmeyi yapıp
+    val listesini `persist_path`'e (JSON) yazar; sonraki koşularda dosyadan okur.
+
+    Neden gerekli: Drive'daki veri seti sonradan BÜYÜYEBİLİR (Faz 2 pipeline'ı
+    idempotent — yeni bir koşu yeni çiftler ekleyebilir). Salt-deterministik
+    bölünme, girdi listesi değişince FARKLI bir val kümesi üretirdi — önceki
+    epoch'larda eğitimde görülmüş görseller val'e sızardı. Kalıcı listeyle val
+    kümesi İLK koşuda ne seçildiyse o kalır; SONRADAN eklenen stem'lerin TAMAMI
+    TRAIN'e gider (bilinçli, basit tercih: val kümesinin epoch'lar arası
+    karşılaştırılabilirliği, oransal val büyütmekten daha değerli — val payı
+    zamanla %2'nin biraz altına düşebilir, hızlı-değerlendirme zaten sabit
+    `n=24`'lük bir alt küme kullandığı için pratik etkisi yok).
+
+    Dosyada kayıtlı olup artık diskte OLMAYAN stem'ler sessizce val'den düşürülür
+    (veri silinmişse bölünme yine tutarlı kalır)."""
+    persist_path = Path(persist_path)
+    if persist_path.exists():
+        saved = json.loads(persist_path.read_text())
+        saved_val = set(saved["val_stems"])
+        all_set = set(all_stems)
+        val = sorted(saved_val & all_set)
+        train = sorted(all_set - saved_val)
+        return train, val
+
+    train, val = deterministic_val_split(all_stems, seed=seed, val_fraction=val_fraction)
+    persist_path.parent.mkdir(parents=True, exist_ok=True)
+    persist_path.write_text(
+        json.dumps({"seed": seed, "val_fraction": val_fraction, "val_stems": val}, ensure_ascii=False, indent=1)
+    )
+    return train, val
+
+
 def fixed_eval_subset(val_stems: list[str], seed: int, n: int) -> list[str]:
     """VAL kümesinden (2% — yüzlerce görsel olabilir) HER epoch aynı, sabit
     `n` (varsayılan 24) görsellik bir alt küme seçer — periyodik hızlı-değerlendirmenin
@@ -200,15 +240,29 @@ def fixed_eval_subset(val_stems: list[str], seed: int, n: int) -> list[str]:
 # 4) BiRefNet resmi train.py/config.py mantığının küçük parçaları
 # ============================================================================
 def should_apply_finetune_reweight(epoch: int, total_epochs: int, finetune_last_epochs: int) -> bool:
-    """BiRefNet resmi `train.py::Trainer.train_epoch` içindeki koşulun BİREBİR
-    aynısı: `if epoch > args.epochs + config.finetune_last_epochs:` (kaynak:
+    """BiRefNet resmi `train.py::Trainer.train_epoch` içindeki koşul:
+    `if epoch > args.epochs + config.finetune_last_epochs:` (kaynak:
     ZhengPeng7/BiRefNet `train.py`, GitHub `main` dalı, fonksiyon `train_epoch`,
     ~satır 195 civarı — bu depoya `curl` ile çekilip incelendi, bkz. Faz 3 raporu).
     `finetune_last_epochs` NEGATİF bir sayıdır (`config.py`'de `Matting` görevi
     için `-10` — son 10 epoch'ta pixel loss ağırlıkları kademeli değiştirilir,
     "belgelenen fine-tune hilesi"). `total_epochs`, o Colab OTURUMUNUN DEĞİL,
     eğitimin NİHAİ HEDEF epoch sayısıdır (`EPOCHS` parametresi — resume'lerde
-    HER OTURUMDA AYNI değer verilmeli, aksi halde bu eşik oturumdan oturuma kayar)."""
+    HER OTURUMDA AYNI değer verilmeli, aksi halde bu eşik oturumdan oturuma kayar).
+
+    Resmi koşula EK iki koruma (kısa koşular için — resmi kod EPOCHS>=150
+    varsaydığından bu durumu hiç ele almıyor):
+    - `finetune_last_epochs == 0` -> hep False (`config.py` yorumu: "choose 0 to skip").
+    - `total_epochs <= |finetune_last_epochs|` (ör. EPOCHS=6, ft=-10) -> hep False:
+      pencere başlangıcı (total+ft+1) epoch 1'in ÖNCESİNE düşerdi ve decay üssü
+      daha ilk epoch'ta n>1 olurdu (ör. 0.9^5) — kısa keşif koşularında loss
+      ağırlıklarını daha eğitim başlamadan bozmak anlamsız, hile tamamen atlanır.
+      Bu koruma sayesinde hile uygulandığında üs her zaman n>=1'den başlar
+      (epoch > total+ft >= 1 -> n = epoch-(total+ft) >= 1)."""
+    if finetune_last_epochs == 0:
+        return False
+    if finetune_last_epochs < 0 and total_epochs <= -finetune_last_epochs:
+        return False
     return epoch > total_epochs + finetune_last_epochs
 
 
@@ -230,3 +284,85 @@ def effective_lr(task: str, batch_size: int, accum_steps: int, base_lr_override:
     base = 1e-4 if "DIS5K" in task else 1e-5
     effective_batch = batch_size * accum_steps
     return base * math.sqrt(effective_batch / 4)
+
+
+# ============================================================================
+# 5) BiRefNet config.py metin yaması (İDEMPOTENT)
+# ============================================================================
+_TASK_LIST = ["DIS5K", "COD", "HRSOD", "General", "General-2K", "Matting"]
+_TASK_LINE_RE = re.compile(
+    r"self\.task = (\['DIS5K', 'COD', 'HRSOD', 'General', 'General-2K', 'Matting'\])\[\d+\]"
+)
+_HOME_LINE_RE = re.compile(r"self\.sys_home_dir = \[os\.path\.expanduser\('~'\), '[^']*'\]\[1\]")
+_BS_LINE_RE = re.compile(r"self\.batch_size = \d+")
+
+
+def apply_config_patches(src: str, task: str, sys_home_dir: str, batch_size: int) -> str:
+    """BiRefNet `config.py` kaynağına üç yamayı uygular: (1) `self.task` seçili
+    indeksi, (2) `self.sys_home_dir` ikinci elemanı (data_root_dir'ın kökü),
+    (3) `self.batch_size`. Satır desenleri GitHub `main` dalındaki `Config.__init__`
+    ile doğrulandı (bkz. Faz 3 raporu).
+
+    İDEMPOTENT ve yeniden-parametrelenebilir: regex, satırın HEM orijinal
+    (yamasız) HEM önceden yamalanmış halini eşler — aynı VM'de notebook'un
+    (aynı ya da FARKLI parametre değerleriyle) yeniden koşturulması hata vermez,
+    `apply(apply(src)) == apply(src)`. Desen hiç eşleşmezse (repo `main` dalı
+    değişmişse) SESSİZCE geçmek yerine net bir ValueError fırlatılır."""
+    if task not in _TASK_LIST:
+        raise ValueError(f"bilinmeyen görev: {task!r} (geçerli: {_TASK_LIST})")
+    idx = _TASK_LIST.index(task)
+
+    patched, n = _TASK_LINE_RE.subn(rf"self.task = \1[{idx}]", src, count=1)
+    if n == 0:
+        raise ValueError(
+            "config.py'de beklenen `self.task = [...][N]` satırı bulunamadı — "
+            "BiRefNet main dalı değişmiş olabilir, config.py'yi elle kontrol edin."
+        )
+    patched, n = _HOME_LINE_RE.subn(
+        f"self.sys_home_dir = [os.path.expanduser('~'), '{sys_home_dir}'][1]", patched, count=1
+    )
+    if n == 0:
+        raise ValueError("config.py'de beklenen `self.sys_home_dir = [...]` satırı bulunamadı.")
+    patched, n = _BS_LINE_RE.subn(f"self.batch_size = {batch_size}", patched, count=1)
+    if n == 0:
+        raise ValueError("config.py'de beklenen `self.batch_size = N` satırı bulunamadı.")
+    return patched
+
+
+# ============================================================================
+# 6) Drive -> yerel disk veri kopyalama (boyut doğrulamalı, idempotent)
+# ============================================================================
+def copy_pairs(
+    stems: list[str],
+    src_im_dir: str | Path,
+    src_gt_dir: str | Path,
+    dst_im_dir: str | Path,
+    dst_gt_dir: str | Path,
+    im_ext: str = ".jpg",
+    gt_ext: str = ".png",
+) -> int:
+    """`stems` listesindeki (im, gt) çiftlerini kaynaktan hedefe kopyalar;
+    kopyalanan çift sayısını döndürür. İdempotent: hedefte HEM im HEM gt varsa
+    VE her ikisinin de dosya boyutu kaynakla birebir eşleşiyorsa atlanır —
+    yalnız im boyutuna bakmak yetmez, yarım kalmış bir Colab kopyalamasında
+    gt dosyası kesik (truncated) kalmış olabilir; o durumda çift YENİDEN
+    kopyalanır (onarım)."""
+    import shutil
+
+    src_im_dir, src_gt_dir = Path(src_im_dir), Path(src_gt_dir)
+    dst_im_dir, dst_gt_dir = Path(dst_im_dir), Path(dst_gt_dir)
+    copied = 0
+    for stem in stems:
+        src_im, src_gt = src_im_dir / f"{stem}{im_ext}", src_gt_dir / f"{stem}{gt_ext}"
+        dst_im, dst_gt = dst_im_dir / f"{stem}{im_ext}", dst_gt_dir / f"{stem}{gt_ext}"
+        if (
+            dst_im.exists()
+            and dst_gt.exists()
+            and dst_im.stat().st_size == src_im.stat().st_size
+            and dst_gt.stat().st_size == src_gt.stat().st_size
+        ):
+            continue
+        shutil.copy2(src_im, dst_im)
+        shutil.copy2(src_gt, dst_gt)
+        copied += 1
+    return copied
