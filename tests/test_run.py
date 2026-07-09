@@ -76,6 +76,32 @@ def test_metrics_json_merges_across_invocations(tmp_path):
     assert set(metrics["per_category"]) == {"fake", "other"}
 
 
+def test_rgba_flag_produces_decontaminated_output(tmp_path):
+    manifest = _make_testset(tmp_path)
+    fake_rgba = Image.new("RGBA", (8, 8), (1, 2, 3, 255))
+    with patch("benchmark.run.get_segmenter", return_value=FakeSeg()), \
+         patch("benchmark.run.decontaminate", return_value=fake_rgba) as mock_decon:
+        run_benchmark(["fake"], str(manifest), str(tmp_path / "out"), rgba=True)
+    rgba_path = tmp_path / "out/fake/rgba/a.png"
+    assert rgba_path.exists()
+    with Image.open(rgba_path) as img:
+        assert img.mode == "RGBA"
+    assert mock_decon.call_count == 1
+
+    # idempotent: ikinci koşuda decontaminate tekrar çağrılmaz (segmenter da çağrılmaz)
+    with patch("benchmark.run.get_segmenter", return_value=FakeSeg()), \
+         patch("benchmark.run.decontaminate", return_value=fake_rgba) as mock_decon2:
+        run_benchmark(["fake"], str(manifest), str(tmp_path / "out"), rgba=True)
+    assert mock_decon2.call_count == 0
+
+
+def test_rgba_default_false_produces_no_rgba_dir(tmp_path):
+    manifest = _make_testset(tmp_path)
+    with patch("benchmark.run.get_segmenter", return_value=FakeSeg()):
+        run_benchmark(["fake"], str(manifest), str(tmp_path / "out"))
+    assert not (tmp_path / "out/fake/rgba").exists()
+
+
 def test_gtless_row_gets_alpha_but_no_metrics(tmp_path):
     manifest = _make_testset(tmp_path)
     img_b = tmp_path / "b.jpg"

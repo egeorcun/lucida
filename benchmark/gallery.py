@@ -61,9 +61,13 @@ def build_gallery(manifest_path: str, results_dir: str, models: list[str], out_h
             for m in models:
                 mask_path = results / m / f"{row['id']}.png"
                 if mask_path.exists():
-                    composite_path = results / m / "composites" / f"{row['id']}.png"
-                    _build_composite(Path(row["image"]).resolve(), mask_path.resolve(), composite_path)
-                    cells.append(_img_cell(out_dir, composite_path.resolve(), m))
+                    rgba_path = results / m / "rgba" / f"{row['id']}.png"
+                    if rgba_path.exists():
+                        cells.append(_img_cell(out_dir, rgba_path.resolve(), m))
+                    else:
+                        composite_path = results / m / "composites" / f"{row['id']}.png"
+                        _build_composite(Path(row["image"]).resolve(), mask_path.resolve(), composite_path)
+                        cells.append(_img_cell(out_dir, composite_path.resolve(), m))
             ideo = results.parent / "ideogram" / f"{row['id']}.png"
             if ideo.exists():
                 cells.append(_img_cell(out_dir, ideo.resolve(), "ideogram"))

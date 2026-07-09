@@ -9,6 +9,7 @@ from PIL import Image
 
 from benchmark.metrics import all_metrics
 from benchmark.testset import load_manifest
+from bgr.decontaminate import decontaminate
 from bgr.registry import get_segmenter
 
 
@@ -19,7 +20,9 @@ def _load_alpha(path: str) -> np.ndarray:
     return np.asarray(img.convert("L"), dtype=np.float32) / 255.0
 
 
-def run_benchmark(models: list[str], manifest_path: str, out_dir: str) -> dict:
+def run_benchmark(
+    models: list[str], manifest_path: str, out_dir: str, rgba: bool = False
+) -> dict:
     rows = load_manifest(manifest_path)
     out = Path(out_dir)
     per_image: dict = {}
@@ -33,6 +36,13 @@ def run_benchmark(models: list[str], manifest_path: str, out_dir: str) -> dict:
             if not dst.exists():
                 alpha = seg.predict_alpha(Image.open(row["image"]))
                 Image.fromarray(np.round(alpha * 255).astype(np.uint8)).save(dst)
+            if rgba:
+                rgba_dst = model_dir / "rgba" / f"{row['id']}.png"
+                if not rgba_dst.exists():
+                    rgba_dst.parent.mkdir(parents=True, exist_ok=True)
+                    alpha_loaded = _load_alpha(str(dst))
+                    rgba_img = decontaminate(Image.open(row["image"]), alpha_loaded)
+                    rgba_img.save(rgba_dst)
             if row["gt_alpha"]:
                 pred = _load_alpha(str(dst))
                 gt = _load_alpha(row["gt_alpha"])
@@ -82,8 +92,9 @@ def main() -> None:
     ap.add_argument("--models", required=True)
     ap.add_argument("--manifest", required=True)
     ap.add_argument("--out", required=True)
+    ap.add_argument("--rgba", action="store_true")
     a = ap.parse_args()
-    result = run_benchmark(a.models.split(","), a.manifest, a.out)
+    result = run_benchmark(a.models.split(","), a.manifest, a.out, rgba=a.rgba)
     print(json.dumps(result["overall"], indent=2))
 
 
