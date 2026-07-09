@@ -4,7 +4,7 @@
 
 ## 1. Amaç ve başarı kriteri
 
-`fal-ai/ideogram/remove-background` kalitesinde, genel amaçlı (insan, ürün, hayvan, illüstrasyon) bir background remover. Kullanım: kişisel/araştırma (non-commercial model ağırlıkları ve research-only dataset'ler kullanılabilir). Şimdilik tamamen lokal (M4 Max 48GB); deploy kararı model kanıtlanınca.
+`fal-ai/ideogram/remove-background` kalitesinde, genel amaçlı (insan, ürün, hayvan, illüstrasyon) bir background remover. Kullanım: kişisel/araştırma + **bitmiş model MIT lisansıyla açık kaynak paylaşılacak** (2026-07-09 kullanıcı kararı). Şimdilik tamamen lokal (M4 Max 48GB); deploy kararı model kanıtlanınca.
 
 **Başarı kriteri:**
 1. GT alpha'lı test setlerinde SAD/MAE/Grad/Conn metriklerinde RMBG-2.0 baseline'ını geçmek.
@@ -32,7 +32,7 @@ SAM3 ana pipeline'da **yok** (prompt'lu segmentasyon farklı problem; binary mas
 - **Dataset'ler:** DIS5K, P3M-10k, AM-2k, AIM-500, Distinctions-646, HIM2K, Transparent-460, PPM-100, BG-20k (arka plan havuzu), ToonOut (illüstrasyon); opsiyonel gated Adobe-1K.
 - **Compositing:** alpha'lı foreground'lar BG-20k üzerine; augmentasyon (renk/ışık jitter, JPEG artifact, ölçek, blur).
 - **Birleşik format:** image + alpha + kategori etiketi; kategori bazlı örnekleme ağırlıkları.
-- **Eğitim:** BiRefNet resmi training kodu; başlangıç ağırlığı RMBG-2.0. Colab Pro A100 (aylık plan, ₺165,60; ~100 birim ≈ 8-11 saat A100). 1024px, multi-stage supervision, gradient accumulation (bs≥2; bs=1'de bilinen checkpoint bug'ı — BiRefNet issue #140). Her epoch Google Drive'a checkpoint + tam resume.
+- **Eğitim:** BiRefNet resmi training kodu; başlangıç ağırlığı **BiRefNet_HR-matting (MIT)** — model açık kaynak paylaşılabilsin diye (RMBG-2.0 türevi CC BY-NC kısıtı miras alırdı; RMBG-2.0 yalnızca benchmark baseline'ı olarak kalır). Colab Pro A100 (aylık plan, ₺165,60; ~100 birim ≈ 8-11 saat A100). 1024px, multi-stage supervision, gradient accumulation (bs≥2; bs=1'de bilinen checkpoint bug'ı — BiRefNet issue #140). Her epoch Google Drive'a checkpoint + tam resume.
 - **Lokal debug:** MPS'te 512px/batch 1/birkaç yüz step, `PYTORCH_ENABLE_MPS_FALLBACK=1`, PyTorch ≥2.4.
 - **İterasyon döngüsü:** eğit → benchmark → zayıf kategorilere veri ekle/ağırlıkla → tekrar.
 
