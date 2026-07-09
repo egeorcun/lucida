@@ -21,6 +21,9 @@ dependencies = [
     "llvmlite>=0.43",
 ]
 
+[project.scripts]
+bgr = "bgr.cli:main"
+
 [dependency-groups]
 dev = [
     "pyarrow>=24.0.0",
