@@ -12,7 +12,15 @@ Ham veri edinimi (data/raw/ altına, git dışı):
   snapshot_download(allow_patterns=["Test/*"]) -> data/raw/trans460/Test/{fg,alpha} (50 çift).
 - DIS-VD: HF dataset "nobg/DIS5K" -> data/DIS_VD-*.parquet; parquet'teki (image, label)
   byte'ları PIL ile data/raw/dis5k/DIS-VD/{im,gt}/ altına dosya olarak yazıldı (470 çift,
-  pyarrow gerekir).
+  pyarrow gerekir). Ham dosya adları '<grupIdx>#<Grup>#<sınıfIdx>#<Sınıf>#<orijinalAd>'
+  biçimindedir (ör. '1#Accessories#5#Jewelry#12836143775_...').
+
+NOT (final review düzeltmesi): DIS-VD satırları ilk halde thin/complex/general'e
+RASTGELE dağıtılmıştı (bkz. git geçmişi). scripts/relabel_disvd.py bunu tek seferlik
+düzeltti: gerçek DIS5K sınıfı id'nin içine kodlu olduğundan (classify_disvd(), aşağıda)
+her satırın kategorisi dosya adı token'ından yeniden hesaplandı; id/dosya adları
+değişmedi. sample_disvd_multi() artık BAŞTAN İTİBAREN classify_disvd() kullanır, yani
+gelecekteki yeniden derlemelerde rastgele dağıtım YOKTUR.
 """
 import random
 import re
@@ -40,10 +48,20 @@ SOURCES: list[tuple[str, str, str, str, int]] = [
     ("trans460", "data/raw/trans460/Test/fg/*", "data/raw/trans460/Test/alpha/*", "transparent", 25),
 ]
 
-# DIS-VD tek havuzdan üç kategoriye ayrık (overlap'sız) örneklenir.
+# DIS-VD tek havuzdan örneklenir; kategori dosya adı token'ından atanır (bkz. classify_disvd).
 DISVD_IMG_GLOB = "data/raw/dis5k/DIS-VD/im/*"
 DISVD_GT_GLOB = "data/raw/dis5k/DIS-VD/gt/*"
-DISVD_SPLITS: list[tuple[str, int]] = [("thin", 20), ("complex", 30), ("general", 15)]
+DISVD_N = 65  # eski thin(20)+complex(30)+general(15) toplamıyla aynı büyüklük
+
+# DIS5K sınıf token'larından ince/karmaşık (thin/complex) sınıflandırma.
+# "thin" = telli/örgü/iskelet gibi ince, delikli/örgülü geometri baskın olan sınıflar.
+_THIN_DISVD_CLASSES = {
+    "racket", "cable", "wire", "fence", "gate", "antenna", "jewelry", "chandelier",
+    "bicycle", "tricycle", "wheel", "ladder", "windmill", "drum", "drumkit", "scaffold",
+    "net", "skeleton", "umbrella", "polevault", "handrail", "floorlamp", "musicstand",
+    "stand", "spider", "shrimp", "streetlamp", "shoppingcart", "seadragon", "hangglider",
+    "basketballhoop", "earphone",
+}
 
 
 def _sanitize(stem: str) -> str:
@@ -79,27 +97,57 @@ def sample_source(name: str, img_glob: str, gt_glob: str, category: str, n: int)
     return rows
 
 
-def sample_disvd_multi(name: str, img_glob: str, gt_glob: str,
-                        splits: list[tuple[str, int]]) -> list[dict]:
-    """Aynı havuzdan (DIS-VD) birden fazla kategoriye örtüşmeyen örnekler çeker."""
+def parse_disvd_class(stem: str) -> str | None:
+    """DIS5K stem/id'sinden sınıf token'ını savunmacı biçimde çıkar.
+
+    Ham dosya adları '<grupIdx>#<Grup>#<sınıfIdx>#<Sınıf>#<orijinalAd>' biçimindedir;
+    '#' -> '_' sanitize edildikten (bkz. _sanitize) veya 'disvd_<eskiKategori>_' öneki
+    eklendikten sonra da aynı mantıkla ayrıştırılabilir: alt çizgiyle ayrılmış token'lar
+    içinde ilk iki SAF SAYISAL token grup/sınıf indeksleridir (grup adı 'Non-motor_Vehicle'
+    gibi birden çok token olabilir, önemli değil); sınıf adı, ikinci sayısal token'dan hemen
+    sonraki tek token'dır. Ayrıştırılamazsa None döner.
+    """
+    parts = stem.split("_")
+    digit_idxs = [i for i, p in enumerate(parts) if p.isdigit()]
+    if len(digit_idxs) < 2:
+        return None
+    class_idx = digit_idxs[1]
+    if class_idx + 1 >= len(parts):
+        return None
+    return parts[class_idx + 1]
+
+
+def classify_disvd(stem: str) -> str:
+    """DIS5K stem/id'sinden gerçek kategoriyi (thin/complex) döndürür.
+
+    Ayrıştırılamayan veya listede olmayan sınıflar için varsayılan 'complex'tir
+    (bkz. _THIN_DISVD_CLASSES; bilinmeyen gelecekteki sınıflar için güvenli varsayılan).
+    """
+    cls = parse_disvd_class(stem)
+    if cls is None:
+        return "complex"
+    return "thin" if cls.lower() in _THIN_DISVD_CLASSES else "complex"
+
+
+def sample_disvd_multi(name: str, img_glob: str, gt_glob: str, n: int) -> list[dict]:
+    """DIS-VD havuzundan n örnek çeker; kategori dosya adı token'ından (classify_disvd)
+    atanır (rastgele dağıtım YOKTUR)."""
     imgs = sorted(ROOT.glob(img_glob))
     gts = {p.stem: p for p in ROOT.glob(gt_glob)}
     paired = [(i, gts[i.stem]) for i in imgs if i.stem in gts]
     random.shuffle(paired)
 
     rows = []
-    idx = 0
-    for category, n in splits:
-        chunk = paired[idx: idx + n]
-        idx += n
-        for img, gt in chunk:
-            rid = f"{name}_{category}_{_sanitize(img.stem)}"
-            dst_i = OUT_IMG / f"{rid}{img.suffix}"
-            dst_g = OUT_GT / f"{rid}.png"
-            _copy_image(img, dst_i)
-            _copy_alpha(gt, dst_g)
-            rows.append({"id": rid, "image": str(dst_i.relative_to(ROOT)),
-                         "category": category, "gt_alpha": str(dst_g.relative_to(ROOT))})
+    for img, gt in paired[:n]:
+        sanitized_stem = _sanitize(img.stem)
+        category = classify_disvd(sanitized_stem)
+        rid = f"{name}_{category}_{sanitized_stem}"
+        dst_i = OUT_IMG / f"{rid}{img.suffix}"
+        dst_g = OUT_GT / f"{rid}.png"
+        _copy_image(img, dst_i)
+        _copy_alpha(gt, dst_g)
+        rows.append({"id": rid, "image": str(dst_i.relative_to(ROOT)),
+                     "category": category, "gt_alpha": str(dst_g.relative_to(ROOT))})
     return rows
 
 
@@ -125,10 +173,12 @@ def build() -> None:
         append_entries(str(MANIFEST), rows)
         print(f"{src[0]} ({src[3]}): {len(rows)} örnek")
 
-    rows = sample_disvd_multi("disvd", DISVD_IMG_GLOB, DISVD_GT_GLOB, DISVD_SPLITS)
+    rows = sample_disvd_multi("disvd", DISVD_IMG_GLOB, DISVD_GT_GLOB, DISVD_N)
     append_entries(str(MANIFEST), rows)
-    for category, n in DISVD_SPLITS:
-        count = sum(1 for r in rows if r["category"] == category)
+    counts: dict[str, int] = {}
+    for r in rows:
+        counts[r["category"]] = counts.get(r["category"], 0) + 1
+    for category, count in sorted(counts.items()):
         print(f"disvd ({category}): {count} örnek")
 
 
