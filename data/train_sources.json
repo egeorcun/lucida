@@ -52,6 +52,108 @@
       "full_pair_count": 3040,
       "local_sample": null,
       "local_sample_note": "HF'de piksel-seviyeli GT maskeli TRAIN mirror'ı bulunamadı: 'Chranos/COD10K_train' ve 'Jrseee/COD10K' boş/LFS işaretçisiz repo; 'chandrabhuma/animal_cod10k' ve 'chandrabhuma/animal_cod10k_train' yalnız görsel+soru-cevap (piksel maskesi yok); bu görev sırasında ayrıca aranan 'SmallDoge/CoD-10K' alakasız bir metin/kod veri seti ('CoD' isim çakışması — 9999 satırlık 'Chain of Draft' tipi prompt/solution korpüsü, camouflage ile ilgisi yok). Bu yüzden lokal doğrulama örneklemi ATLANDI (görev talimatı: mirror yoksa atla, nota geç); tam set Colab'da gdown ile indirilecek."
+    },
+    {
+      "name": "p3m_10k_train",
+      "description": "P3M-10k TRAIN split (Privacy-Preserving Portrait Matting, Li et al. ACMMM 2021) — portre/saç matting.",
+      "hf_repo": "Rupant-ted/p3m-10k",
+      "hf_repo_type": "dataset",
+      "split_patterns": ["data/p3m10k.zip::P3M-10k/train/blurred_image/*.jpg", "data/p3m10k.zip::P3M-10k/train/mask/*.png"],
+      "official_url": "https://github.com/JizhiziLi/P3M",
+      "drive_id": null,
+      "category_rule": "fixed:hair",
+      "license_note": "P3M-10k Dataset Release Agreement (araştırma amaçlı; yüzler gizlilik için bulanıklaştırılmış — 'blurred_image'). MIT paylaşılacak fine-tune modeli için research-only not düşülmeli.",
+      "approx_size_gb": 5.8,
+      "full_pair_count": 9422,
+      "local_sample": {
+        "path": "data/raw_train/p3m",
+        "pair_count": 100,
+        "method": "Tüm veri seti TEK bir zip (data/p3m10k.zip, ~5.8GB) olarak barındırılıyor; huggingface_hub.HfFileSystem (fsspec HTTP range request) ile zip TAMAMEN İNDİRİLMEDEN zipfile.ZipFile merkezi dizini (central directory) kısmi okundu (9422 çift doğrulandı), ardından 100 rastgele çiftin yalnız kendi sıkıştırılmış byte aralıkları 12 paralel thread ile (her thread kendi central-directory parse'ını yapıp bir alt küme okuyarak) çekildi (~50MB toplam)."
+      }
+    },
+    {
+      "name": "transparent_460_train",
+      "description": "Transparent-460 TRAIN split (cam/şişe/bardak gibi saydam objeler) — Faz 0'da yalnız Test split (50 çift) kullanılmıştı.",
+      "hf_repo": "Thinnaphat/transparent-460",
+      "hf_repo_type": "dataset",
+      "split_patterns": ["Train/fg/*", "Train/alpha/*"],
+      "official_url": "https://huggingface.co/datasets/Thinnaphat/transparent-460",
+      "drive_id": null,
+      "category_rule": "fixed:transparent",
+      "license_note": "HF repo kartında açık lisans belirtilmemiş (research-only varsayımıyla ele alınmalı, Faz 0'daki Test split kullanımıyla tutarlı). MIT paylaşılacak fine-tune modeli için research-only not düşülmeli.",
+      "approx_size_gb": 3.4,
+      "full_pair_count": 410,
+      "local_sample": {
+        "path": "data/raw_train/trans460_train",
+        "pair_count": 80,
+        "method": "Orijinal dosyalar çok büyük (ortalama ~4.2MB/dosya, bazı alpha PNG'leri 40-80MB); repo_info(files_metadata=True) ile bildirilen boyuta göre en küçük 300/410 çiftlik havuzdan 80 çift rastgele seçildi, HfFileSystem ile BELLEĞE akış okunup (hf_hub_download önbelleği kullanılmadı) PIL ile uzun kenar 1280px'e küçültülüp (fg JPEG q90, alpha PNG, ikisi aynı boyutta) yazıldı (~22MB toplam). Tam TRAIN seti orijinal çözünürlükte Colab'da indirilecek."
+      }
+    },
+    {
+      "name": "distinctions_646",
+      "description": "Distinctions-646 (Attention-Guided Hierarchical Structure Aggregation for Image Matting, Qiao et al. CVPR 2020, HAttMatting) — 646 nesne (596 train/50 test), genel matting.",
+      "hf_repo": null,
+      "hf_repo_type": null,
+      "split_patterns": [],
+      "official_url": "https://qiaoyu2015.github.io/HAttMatting/",
+      "drive_id": null,
+      "download_method": "YOK — dağıtım yalnız yazarla e-posta ile iletişime geçilerek yapılıyor (kamuya açık indirme linki bulunmuyor; paperswithcode.com/dataset/distinctions-646 ve GitHub yuhaoliu7456/CVPR2020-HAttMatting da doğrulandı, ikisinde de doğrudan link yok).",
+      "category_rule": "fixed:general",
+      "license_note": "Bilinmiyor (yazarla iletişim gerektiği için erişilemedi).",
+      "approx_size_gb": null,
+      "full_pair_count": 646,
+      "local_sample": null,
+      "local_sample_note": "HF'de arama (HfApi.list_datasets, çeşitli olası repo adları list_repo_files ile denendi) ve web araştırması sonucu HİÇBİR genel erişimli mirror bulunamadı; resmi kaynak yalnız e-posta talebiyle dağıtım yapıyor. LOKAL ÖRNEKLEM ATLANDI (görev talimatı: bulunamazsa atla, nota geç)."
+    },
+    {
+      "name": "him2k",
+      "description": "HIM2K (Human Instance Matting via Mutual Guidance and Multi-Instance Refinement, Sun et al. CVPR 2022, InstMatt) — 2000 görsel (synthetic+natural alt kümeler), çoklu insan enstansı matting.",
+      "hf_repo": null,
+      "hf_repo_type": null,
+      "split_patterns": [],
+      "official_url": "https://github.com/nowsyn/InstMatt",
+      "drive_id": "11sUSUNdOTUZboc0zhjMz9Od2siuPTpeQ",
+      "download_method": "gdown --id 11sUSUNdOTUZboc0zhjMz9Od2siuPTpeQ (yalnız Colab'da; bu lokal ortamda Google Drive kimlik doğrulaması/gdown erişimi yok). Alternatif: Baidu Disk (fetch kodu 82qe).",
+      "category_rule": "fixed:general",
+      "license_note": "Resmi repoda açık lisans/kullanım koşulu belirtilmemiş; araştırma amaçlı kullanım varsayılmalı. MIT paylaşılacak fine-tune modeli için research-only not düşülmeli.",
+      "approx_size_gb": null,
+      "full_pair_count": 2000,
+      "local_sample": null,
+      "local_sample_note": "HF'de mirror YOK (arama sonuçsuz); resmi kaynak yalnız Google Drive/Baidu Disk üzerinden. Bu ortamda Drive kimlik doğrulaması/gdown erişimi olmadığından LOKAL ÖRNEKLEM ATLANDI (COD10K-TR ile aynı kısıt); tam set Colab'da (T5) gdown ile indirilecek."
+    },
+    {
+      "name": "am_2k",
+      "description": "AM-2k (Animal Matting 2k, Bridging Composite and Real, Li et al. IJCV 2022, GFM) — 2000 hayvan görseli (20 kategori, 1800 train/200 val), genel/hayvan matting. Faz 0'da mirror bulunamamıştı; bu görevde tekrar arandı.",
+      "hf_repo": null,
+      "hf_repo_type": null,
+      "split_patterns": [],
+      "official_url": "https://github.com/JizhiziLi/GFM",
+      "drive_id": "1SReB9Zma0TDfDhow7P5kiZNMwY9j9xMA",
+      "download_method": "gdown/rclone ile Google Drive klasörü (yalnız Colab'da; bu lokal ortamda Drive kimlik doğrulaması yok). Alternatif: Baidu Wangpan (fetch kodu 29r1).",
+      "category_rule": "fixed:general",
+      "license_note": "MIT License (AM-2k Dataset Release Agreement, https://jizhizili.github.io/files/gfm_datasets_agreements/AM-2k_Dataset_Release_Agreement.pdf — indirmeden önce imzalanması istenen bir kullanım sözleşmesi; lisansın kendisi MIT).",
+      "approx_size_gb": null,
+      "full_pair_count": 2000,
+      "local_sample": null,
+      "local_sample_note": "Faz 0'da bulunamamıştı; bu görevde tekrar arandı (HfApi.list_datasets + çeşitli repo adı denemeleri + web araştırması) — yine HF/genel erişimli mirror YOK, yalnız Google Drive/Baidu Wangpan (resmi 'Dataset Release Agreement' imzası isteniyor). Bu ortamda Drive kimlik doğrulaması olmadığından LOKAL ÖRNEKLEM ATLANDI; tam set Colab'da (T5) indirilecek."
+    },
+    {
+      "name": "bg_20k",
+      "description": "BG-20k (Bridging Composite and Real: Towards End-to-end Deep Image Matting, Li et al. IJCV 2022, GFM) — 20.000 yüksek çözünürlüklü, belirgin özne İÇERMEYEN arka plan görseli (15k train + 5k test); compositing arka plan havuzu.",
+      "hf_repo": "unography/BG-20k",
+      "hf_repo_type": "dataset",
+      "split_patterns": ["data/train-*-of-00022.parquet"],
+      "official_url": "https://github.com/JizhiziLi/GFM",
+      "drive_id": null,
+      "category_rule": "n/a (compositing arka plan havuzu — manifest kategorisi yok)",
+      "license_note": "Orijinal BG-20k MIT License (BG-20k Dataset Release Agreement, https://jizhizili.github.io/files/gfm_datasets_agreements/BG-20k_Dataset_Release_Agreement.pdf). HF mirror'ı (unography/BG-20k) resmi 15000-train/5000-test bölünmesiyle bire bir eşleşiyor (dataset_info: train num_examples=15000, test=5000); görsel-yalnız (caption yok), MIT paylaşılacak fine-tune modeli için sorun teşkil etmiyor.",
+      "approx_size_gb": 13.2,
+      "full_pair_count": 20000,
+      "local_sample": {
+        "path": "data/backgrounds",
+        "pair_count": 200,
+        "method": "HfFileSystem (fsspec HTTP range request) + pyarrow.parquet.ParquetFile.read_row_group() — yalnız train-00000-of-00022.parquet parçasının 0. ve 1. row-group'ları (100+100=200 satır, ~140MB) kısmi okundu; TÜM parquet (22 parça, ~10.6GB train) İNDİRİLMEDİ. Görseller uzun kenar 1024px'e küçültülüp JPEG q88 olarak data/backgrounds/ altına yazıldı (~35MB toplam)."
+      }
     }
   ]
 }

@@ -39,6 +39,24 @@ bkz. Faz 2 planı REVİZE disk kuralı — tam materyalizasyon Colab'da, bkz. da
   doğrulaması olmadığından LOKAL ÖRNEKLEM ATLANDI (görev talimatı: "yoksa ATLA");
   kayıt data/train_sources.json'da (drive_id + resmi URL) mevcut — Colab'da (T5)
   gdown ile tam indirilecek.
+- P3M-10k TRAIN (kategori: hair): HF dataset "Rupant-ted/p3m-10k" TEK bir zip
+  (data/p3m10k.zip, ~5.8GB) olarak barındırılıyor; `P3M-10k/train/{blurred_image,mask}/`
+  altında 9422 çift var (list_repo_files ile önce zip içeriği, sonra
+  huggingface_hub.HfFileSystem (fsspec) ile zip'i AÇMADAN zipfile.ZipFile üzerinden
+  merkezi dizin (central directory) okunarak doğrulandı). Zip TAMAMEN İNDİRİLMEDİ:
+  merkezi dizin HTTP range request ile kısmi okundu, ardından 100 rastgele çiftin
+  yalnız kendi sıkıştırılmış byte aralıkları (yine range request ile, 12 thread'de
+  paralel) çekildi (~50MB toplam) ve data/raw_train/p3m/{im,gt}/ altına PIL ile (GT
+  convert("L")) yazıldı.
+- Transparent-460 TRAIN (kategori: transparent): HF dataset "Thinnaphat/transparent-460"
+  `Train/{fg,alpha}/` altında 410 çift (Faz 0'da yalnız `Test/` 50 çift kullanılmıştı).
+  Orijinal dosyalar çok büyük (ortalama ~4.2MB, bazı alpha PNG'leri 40-80MB) — disk
+  bütçesini (≤300MB/kaynak) aşmamak için: `repo_info(files_metadata=True)` ile
+  bildirilen boyuta göre en küçük 300/410 çiftlik havuzdan 80 çift rastgele seçildi,
+  HfFileSystem ile belleğe akış (hf_hub_download önbelleği KULLANILMADI — disk
+  tasarrufu) okunup PIL ile uzun kenarı 1280px'e küçültülüp (fg: JPEG q90, alpha: PNG,
+  ikisi de AYNI boyuta) data/raw_train/trans460_train/{fg,alpha}/ altına yazıldı
+  (toplam ~22MB). Tam TRAIN seti (orijinal çözünürlükte) Colab'da indirilecek.
 """
 import random
 import sys
@@ -110,8 +128,19 @@ def sample_disvd_tokens(name: str, img_glob: str, gt_glob: str,
 
 
 # (kaynak_ad, images_glob, gt_glob, kategori, adet)
+# NOT (matting setleri araştırması, bkz. data/train_sources.json + Faz 2 T3 raporu):
+# Distinctions-646 (Qiao et al. CVPR2020, HAttMatting) yalnız e-posta ile talep üzerine
+# dağıtılıyor — HİÇBİR HF/genel indirme linki yok, atlandı. HIM2K (Sun et al. CVPR2022,
+# InstMatt) ve AM-2k (Li et al. IJCV2022, GFM) yalnız Google Drive/Baidu Wangpan
+# üzerinden (AM-2k için ayrıca MIT lisanslı resmi "Dataset Release Agreement" imzası
+# gerekiyor) dağıtılıyor; bu ortamda gdown/Drive kimlik doğrulaması yok (COD10K-TR'deki
+# aynı kısıt) — LOKAL ÖRNEKLEM ATLANDI, kayıtlar data/train_sources.json'da (drive_id +
+# resmi URL + lisans notu) mevcut, Colab'da (T5) indirilecek.
 SOURCES: list[tuple[str, str, str, str, int]] = [
     ("camotr", "data/raw_train/camo/im/*", "data/raw_train/camo/gt/*", "camouflage", 100),
+    ("p3m", "data/raw_train/p3m/im/*", "data/raw_train/p3m/gt/*", "hair", 100),
+    ("trans460tr", "data/raw_train/trans460_train/fg/*", "data/raw_train/trans460_train/alpha/*",
+     "transparent", 80),
 ]
 
 # DIS5K-TR tek havuzdan örneklenir; kategori dosya adı token'ından atanır.
