@@ -574,7 +574,7 @@ wheels = [
 [[package]]
 name = "my-bg-remover"
 version = "0.1.0"
-source = { virtual = "." }
+source = { editable = "." }
 dependencies = [
     { name = "einops" },
     { name = "fal-client" },
