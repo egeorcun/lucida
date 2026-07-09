@@ -22,7 +22,7 @@ Kategori bazında MAE (parantez: Grad):
 | complex (29) | 0.0385 (2.44) | **0.0241** (2.84) | RMBG, açık farkla |
 | transparent (25) | **0.0687 (4.58)** | 0.0741 (5.05) | İkisi de çok kötü |
 
-Okuma: **RMBG-2.0 alan doğruluğunda (özneyi bulma) tüm kategorilerde önde veya eşit; saydamlıkta ikisi de çöküyor** (diğer kategorilerin 3-15 katı hata). BiRefNet_HR'nin tutarlı tek avantajı kenar keskinliği (Grad, tüm kategorilerde). Fine-tune stratejimizin doğrulaması: BiRefNet mimarisi + RMBG kalitesinde veri = iki gücü birleştirmek (RMBG-2.0 zaten bunun kanıtı — aynı mimari, daha iyi veri).
+Okuma: **RMBG-2.0 alan doğruluğunda (özneyi bulma) tüm kategorilerde önde veya eşit; saydamlıkta ikisi de çöküyor** (diğer kategorilerin 3-15 katı hata). BiRefNet_HR'nin tutarlı tek avantajı kenar keskinliği (Grad — thin/complex/transparent'ta; hair'de berabere). Fine-tune stratejimizin doğrulaması: BiRefNet mimarisi + RMBG kalitesinde veri = iki gücü birleştirmek (RMBG-2.0 zaten bunun kanıtı — aynı mimari, daha iyi veri).
 
 ## Kategori bazlı gözlemler (galeri + örnek incelemesi)
 
