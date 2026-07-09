@@ -16,10 +16,18 @@ def main() -> None:
     ap.add_argument("--limit", type=int, default=MAX_PER_RUN)
     n = min(ap.parse_args().limit, MAX_PER_RUN)
     rows = load_manifest(str(ROOT / "data/testset/manifest.jsonl"))[:n]
+    failed: list[str] = []
     for i, row in enumerate(rows, 1):
         out = ROOT / "results/ideogram" / f"{row['id']}.png"
-        fetch_reference(str(ROOT / row["image"]), str(out))
+        try:
+            fetch_reference(str(ROOT / row["image"]), str(out))
+        except Exception as e:  # noqa: BLE001 - tek görsel hatası tüm çekimi durdurmasın
+            failed.append(row["id"])
+            print(f"[{i}/{len(rows)}] {row['id']} -> HATA, atlandı: {e}")
+            continue
         print(f"[{i}/{len(rows)}] {row['id']}")
+    if failed:
+        print(f"\nAtlanan {len(failed)} görsel: {failed}")
 
 
 if __name__ == "__main__":
