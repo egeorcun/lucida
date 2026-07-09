@@ -46,3 +46,12 @@ def test_unknown_model_400():
     buf.seek(0)
     r = _client().post("/remove?model=yok", files={"file": ("x.png", buf, "image/png")})
     assert r.status_code == 400
+
+
+def test_invalid_upload_400():
+    with patch("serving.app._load_segmenter", return_value=FakeSeg()):
+        r = _client().post(
+            "/remove",
+            files={"file": ("garbage.png", io.BytesIO(b"bu bir gorsel degil"), "image/png")},
+        )
+    assert r.status_code == 400

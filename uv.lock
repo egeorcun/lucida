@@ -628,7 +628,6 @@ dependencies = [
     { name = "einops" },
     { name = "fal-client" },
     { name = "fastapi" },
-    { name = "httpx" },
     { name = "huggingface-hub" },
     { name = "kornia" },
     { name = "llvmlite" },
@@ -648,6 +647,7 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "httpx" },
     { name = "pyarrow" },
     { name = "pytest" },
 ]
@@ -657,7 +657,6 @@ requires-dist = [
     { name = "einops" },
     { name = "fal-client", specifier = ">=0.4" },
     { name = "fastapi", specifier = ">=0.139.0" },
-    { name = "httpx", specifier = ">=0.28.1" },
     { name = "huggingface-hub", specifier = ">=0.24" },
     { name = "kornia" },
     { name = "llvmlite", specifier = ">=0.43" },
@@ -677,6 +676,7 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "httpx", specifier = ">=0.28.1" },
     { name = "pyarrow", specifier = ">=24.0.0" },
     { name = "pytest", specifier = ">=8" },
 ]

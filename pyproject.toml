@@ -22,7 +22,6 @@ dependencies = [
     "fastapi>=0.139.0",
     "uvicorn>=0.51.0",
     "python-multipart>=0.0.32",
-    "httpx>=0.28.1",
 ]
 
 [project.scripts]
@@ -30,6 +29,7 @@ bgr = "bgr.cli:main"
 
 [dependency-groups]
 dev = [
+    "httpx>=0.28.1",
     "pyarrow>=24.0.0",
     "pytest>=8",
 ]
