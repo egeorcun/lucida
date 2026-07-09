@@ -15,6 +15,7 @@ Ham veri edinimi (data/raw/ altına, git dışı):
   pyarrow gerekir).
 """
 import random
+import re
 import sys
 from pathlib import Path
 
@@ -45,6 +46,11 @@ DISVD_GT_GLOB = "data/raw/dis5k/DIS-VD/gt/*"
 DISVD_SPLITS: list[tuple[str, int]] = [("thin", 20), ("complex", 30), ("general", 15)]
 
 
+def _sanitize(stem: str) -> str:
+    """URL-güvenli id: [A-Za-z0-9._-] dışındaki karakterleri '_' yap, ardışıkları tekle."""
+    return re.sub(r"_+", "_", re.sub(r"[^A-Za-z0-9._-]", "_", stem))
+
+
 def _copy_alpha(src: Path, dst: Path) -> None:
     """GT alpha'yı tek kanallı (L) PNG olarak normalize edip kopyala."""
     Image.open(src).convert("L").save(dst)
@@ -63,7 +69,7 @@ def sample_source(name: str, img_glob: str, gt_glob: str, category: str, n: int)
     paired = [(i, gts[i.stem]) for i in imgs if i.stem in gts]
     rows = []
     for img, gt in random.sample(paired, min(n, len(paired))):
-        rid = f"{name}_{img.stem}"
+        rid = f"{name}_{_sanitize(img.stem)}"
         dst_i = OUT_IMG / f"{rid}{img.suffix}"
         dst_g = OUT_GT / f"{rid}.png"
         _copy_image(img, dst_i)
@@ -87,7 +93,7 @@ def sample_disvd_multi(name: str, img_glob: str, gt_glob: str,
         chunk = paired[idx: idx + n]
         idx += n
         for img, gt in chunk:
-            rid = f"{name}_{category}_{img.stem}"
+            rid = f"{name}_{category}_{_sanitize(img.stem)}"
             dst_i = OUT_IMG / f"{rid}{img.suffix}"
             dst_g = OUT_GT / f"{rid}.png"
             _copy_image(img, dst_i)
@@ -102,7 +108,7 @@ def add_unlabeled(folder: str, category: str) -> None:
     for img in sorted((ROOT / folder).glob("*")):
         if img.suffix.lower() not in {".jpg", ".jpeg", ".png", ".webp"}:
             continue
-        rid = f"user_{category}_{img.stem}"
+        rid = f"user_{category}_{_sanitize(img.stem)}"
         dst = OUT_IMG / f"{rid}{img.suffix}"
         _copy_image(img, dst)
         rows.append({"id": rid, "image": str(dst.relative_to(ROOT)),
