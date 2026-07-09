@@ -14,6 +14,12 @@ def test_unknown_name_raises():
         get_segmenter("yok-boyle-model")
 
 
+def test_unknown_variant_raises_before_model_load():
+    """Bilinen taban ad + bilinmeyen varyant: model ağırlıkları yüklenmeden hızlıca KeyError."""
+    with pytest.raises(KeyError):
+        get_segmenter("rmbg-2.0+refime")
+
+
 @pytest.mark.slow
 def test_rmbg2_alpha_contract():
     img = Image.new("RGB", (320, 240), (200, 200, 200))

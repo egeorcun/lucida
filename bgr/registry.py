@@ -17,6 +17,8 @@ def get_segmenter(name: str) -> Segmenter:
     from bgr.pipeline import PipelineSegmenter
 
     base_name, _, suffix = name.partition("+")
+    if suffix and suffix != "refine":
+        raise KeyError(f"bilinmeyen varyant: +{suffix}")
     spec = MODEL_SPECS[base_name]  # bilinmeyen ad -> KeyError
     try:
         base = BiRefNetSegmenter(
@@ -28,6 +30,4 @@ def get_segmenter(name: str) -> Segmenter:
         raise
     if suffix == "refine":
         return PipelineSegmenter(base, refine=True)
-    if suffix:
-        raise KeyError(f"bilinmeyen varyant: +{suffix}")
     return base
