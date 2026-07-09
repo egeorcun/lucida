@@ -5,6 +5,8 @@ import os
 from collections import defaultdict
 from pathlib import Path
 
+from PIL import Image
+
 from benchmark.testset import load_manifest
 
 _CSS = """
@@ -22,6 +24,21 @@ def _img_cell(out_dir: Path, src: Path, label: str) -> str:
     return f'<div class="cell"><img src="{html.escape(rel)}"><br>{html.escape(label)}</div>'
 
 
+def _build_composite(image_path: Path, mask_path: Path, composite_path: Path) -> Path:
+    """Orijinal görsel (RGB) + model maskesi (alfa kanalı) -> RGBA kompozit, önbelleklenir."""
+    if composite_path.exists():
+        return composite_path
+    rgb = Image.open(image_path).convert("RGB")
+    mask = Image.open(mask_path).convert("L")
+    if mask.size != rgb.size:
+        mask = mask.resize(rgb.size)
+    rgba = rgb.copy()
+    rgba.putalpha(mask)
+    composite_path.parent.mkdir(parents=True, exist_ok=True)
+    rgba.save(composite_path)
+    return composite_path
+
+
 def build_gallery(manifest_path: str, results_dir: str, models: list[str], out_html: str) -> None:
     rows = load_manifest(manifest_path)
     results = Path(results_dir)
@@ -31,7 +48,10 @@ def build_gallery(manifest_path: str, results_dir: str, models: list[str], out_h
     for row in rows:
         by_cat[row["category"]].append(row)
 
-    parts = [f"<style>{_CSS}</style><h1>bg-remover benchmark</h1>"]
+    parts = [
+        '<meta charset="utf-8">',
+        f"<style>{_CSS}</style><h1>bg-remover benchmark</h1>",
+    ]
     for cat in sorted(by_cat):
         parts.append(f"<h2>{html.escape(cat)}</h2>")
         for row in by_cat[cat]:
@@ -39,14 +59,16 @@ def build_gallery(manifest_path: str, results_dir: str, models: list[str], out_h
             if row["gt_alpha"]:
                 cells.append(_img_cell(out_dir, Path(row["gt_alpha"]).resolve(), "GT"))
             for m in models:
-                p = results / m / f"{row['id']}.png"
-                if p.exists():
-                    cells.append(_img_cell(out_dir, p.resolve(), m))
+                mask_path = results / m / f"{row['id']}.png"
+                if mask_path.exists():
+                    composite_path = results / m / "composites" / f"{row['id']}.png"
+                    _build_composite(Path(row["image"]).resolve(), mask_path.resolve(), composite_path)
+                    cells.append(_img_cell(out_dir, composite_path.resolve(), m))
             ideo = results.parent / "ideogram" / f"{row['id']}.png"
             if ideo.exists():
                 cells.append(_img_cell(out_dir, ideo.resolve(), "ideogram"))
             parts.append(f'<div class="row" id="{html.escape(row["id"])}">{"".join(cells)}</div>')
-    out.write_text("\n".join(parts))
+    out.write_text("\n".join(parts), encoding="utf-8")
 
 
 def main() -> None:

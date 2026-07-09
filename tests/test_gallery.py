@@ -18,4 +18,11 @@ def test_gallery_contains_rows_and_images(tmp_path):
     out = tmp_path / "results/gallery.html"
     build_gallery(str(manifest), str(tmp_path / "results"), ["m1"], str(out))
     html = out.read_text()
-    assert "hair" in html and 'id="a"' in html and "m1/a" in html
+    assert "hair" in html and 'id="a"' in html
+    # model hücresi ham maskeyi değil, RGBA kompoziti gömmeli
+    assert "m1/a" not in html
+    assert "m1/composites/a" in html
+    composite = tmp_path / "results/m1/composites/a.png"
+    assert composite.exists()
+    with Image.open(composite) as comp:
+        assert comp.mode == "RGBA"
