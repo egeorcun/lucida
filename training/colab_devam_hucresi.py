@@ -30,6 +30,13 @@ import traceback
 from datetime import datetime, timezone
 from pathlib import Path
 
+import PIL.Image
+
+# Transparent-460/HIM2K'da 100MP+ görseller var; kompozit çıktıları PIL'in
+# 179MP "decompression bomb" hata eşiğini aşabiliyor. Veri güvenilir akademik
+# setlerden geldiği için limit kaldırılıyor.
+PIL.Image.MAX_IMAGE_PIXELS = None
+
 import numpy as np
 from PIL import Image
 
