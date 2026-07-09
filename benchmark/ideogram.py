@@ -1,0 +1,28 @@
+"""fal.ai Ideogram remove-background referans çıktıları ($0.01/görsel).
+
+FAL_KEY env değişkeni gerekir. Idempotent: çıktı varsa API çağrılmaz.
+"""
+import os
+from pathlib import Path
+
+import fal_client
+import requests
+
+ENDPOINT = "fal-ai/ideogram/remove-background"
+
+
+def _download(url: str, path: str) -> None:
+    r = requests.get(url, timeout=120)
+    r.raise_for_status()
+    Path(path).write_bytes(r.content)
+
+
+def fetch_reference(image_path: str, out_path: str) -> None:
+    if Path(out_path).exists():
+        return
+    if not os.environ.get("FAL_KEY"):
+        raise RuntimeError("FAL_KEY tanımlı değil: https://fal.ai/dashboard/keys")
+    Path(out_path).parent.mkdir(parents=True, exist_ok=True)
+    url = fal_client.upload_file(image_path)
+    result = fal_client.subscribe(ENDPOINT, arguments={"image_url": url})
+    _download(result["image"]["url"], out_path)
