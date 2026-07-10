@@ -287,6 +287,51 @@ def test_copy_pairs_repairs_truncated_im(tmp_path):
     assert (dst_im / "a.jpg").read_bytes() == b"IMDATA-123"
 
 
+def test_copy_pairs_parallel_matches_serial(tmp_path):
+    # Paralel (varsayılan max_workers=16) sonucun, tek-iş-parçacıklı (max_workers=1)
+    # koşumla BİREBİR aynı dizin ağacını ürettiğini kanıtlar — aynı fixture (200 çift,
+    # her biri kendine özgü içerik), iki ayrı hedef ağaca kopyalanır, sonra karşılaştırılır.
+    stems = [f"stem_{i:04d}" for i in range(200)]
+    src_im, src_gt = tmp_path / "src_im", tmp_path / "src_gt"
+    src_im.mkdir()
+    src_gt.mkdir()
+    for stem in stems:
+        (src_im / f"{stem}.jpg").write_bytes(f"IMG-DATA-{stem}".encode())
+        (src_gt / f"{stem}.png").write_bytes(f"GT-DATA-{stem}".encode())
+
+    dst_im_serial, dst_gt_serial = tmp_path / "dst_im_serial", tmp_path / "dst_gt_serial"
+    dst_im_parallel, dst_gt_parallel = tmp_path / "dst_im_parallel", tmp_path / "dst_gt_parallel"
+    for d in (dst_im_serial, dst_gt_serial, dst_im_parallel, dst_gt_parallel):
+        d.mkdir()
+
+    n_serial = copy_pairs(stems, src_im, src_gt, dst_im_serial, dst_gt_serial, max_workers=1)
+    n_parallel = copy_pairs(stems, src_im, src_gt, dst_im_parallel, dst_gt_parallel, max_workers=16)
+    assert n_serial == n_parallel == len(stems)
+
+    def _tree(d):
+        return {p.name: p.read_bytes() for p in d.iterdir()}
+
+    assert _tree(dst_im_serial) == _tree(dst_im_parallel)
+    assert _tree(dst_gt_serial) == _tree(dst_gt_parallel)
+
+    # İkinci koşum (idempotentlik) her iki modda da no-op olmalı.
+    assert copy_pairs(stems, src_im, src_gt, dst_im_serial, dst_gt_serial, max_workers=1) == 0
+    assert copy_pairs(stems, src_im, src_gt, dst_im_parallel, dst_gt_parallel, max_workers=16) == 0
+
+
+def test_copy_pairs_collects_errors_and_raises_first_with_count(tmp_path):
+    # Kaynakta OLMAYAN bir stem varsa o çiftin kopyalanması hata verir; ama diğer
+    # TÜM çiftler yine de işlenmeli (kısmi ilerleme kaybolmamalı) ve sonda İLK hata
+    # toplam hata sayısıyla birlikte fırlatılmalı.
+    stems = ["a", "missing", "b"]
+    src_im, src_gt, dst_im, dst_gt = _make_pair_tree(tmp_path, ["a", "b"])
+    with pytest.raises(RuntimeError, match=r"1/3.*missing"):
+        copy_pairs(stems, src_im, src_gt, dst_im, dst_gt)
+    # "a" ve "b" hatasız çiftler olduğu için yine de kopyalanmış olmalı.
+    assert (dst_im / "a.jpg").exists()
+    assert (dst_im / "b.jpg").exists()
+
+
 # ============================================================================
 # 7) Kalıcı VAL bölünmesi (review Important 2)
 # ============================================================================

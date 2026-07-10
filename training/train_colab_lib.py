@@ -340,19 +340,34 @@ def copy_pairs(
     dst_gt_dir: str | Path,
     im_ext: str = ".jpg",
     gt_ext: str = ".png",
+    max_workers: int = 16,
 ) -> int:
     """`stems` listesindeki (im, gt) çiftlerini kaynaktan hedefe kopyalar;
     kopyalanan çift sayısını döndürür. İdempotent: hedefte HEM im HEM gt varsa
     VE her ikisinin de dosya boyutu kaynakla birebir eşleşiyorsa atlanır —
     yalnız im boyutuna bakmak yetmez, yarım kalmış bir Colab kopyalamasında
     gt dosyası kesik (truncated) kalmış olabilir; o durumda çift YENİDEN
-    kopyalanır (onarım)."""
+    kopyalanır (onarım).
+
+    Drive FUSE bağlantısı üzerinden onbinlerce küçük dosyayı TEK İŞ PARÇACIĞIYLA
+    kopyalamak saatler sürüyor (canlı bir Colab oturumunda ölçüldü); bu yüzden
+    her çift bağımsız bir iş birimi olarak `ThreadPoolExecutor` ile `max_workers`
+    kadar iş parçacığına dağıtılır (I/O-bound kopyalama — GIL burada engel
+    değil). Her çiftin hedef dosyaları kendine özgü olduğundan iş parçacıkları
+    arasında paylaşılan durum YOK (yarış koşulu riski yok); sonuç (kopyalanan
+    sayı, atlanan/onarılan çiftler) sıralamadan BAĞIMSIZ, seri koşumla birebir
+    aynıdır. Tek tek çiftlerdeki hatalar ANINDA fırlatılmaz — TÜMÜ toplanır,
+    geri kalan tüm çiftler işlenir (kısmi ilerleme kaybolmaz), sonda İLK hata
+    toplam hata sayısıyla birlikte yeniden fırlatılır. Her 2000 tamamlanan
+    çiftte bir ilerleme (hız + ETA) konsola yazdırılır."""
     import shutil
+    import time
+    from concurrent.futures import ThreadPoolExecutor, as_completed
 
     src_im_dir, src_gt_dir = Path(src_im_dir), Path(src_gt_dir)
     dst_im_dir, dst_gt_dir = Path(dst_im_dir), Path(dst_gt_dir)
-    copied = 0
-    for stem in stems:
+
+    def _copy_one(stem: str) -> bool:
         src_im, src_gt = src_im_dir / f"{stem}{im_ext}", src_gt_dir / f"{stem}{gt_ext}"
         dst_im, dst_gt = dst_im_dir / f"{stem}{im_ext}", dst_gt_dir / f"{stem}{gt_ext}"
         if (
@@ -361,8 +376,41 @@ def copy_pairs(
             and dst_im.stat().st_size == src_im.stat().st_size
             and dst_gt.stat().st_size == src_gt.stat().st_size
         ):
-            continue
+            return False
         shutil.copy2(src_im, dst_im)
         shutil.copy2(src_gt, dst_gt)
-        copied += 1
+        return True
+
+    total = len(stems)
+    copied = 0
+    completed = 0
+    errors: list[tuple[str, BaseException]] = []
+    t0 = time.time()
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        future_to_stem = {executor.submit(_copy_one, stem): stem for stem in stems}
+        for future in as_completed(future_to_stem):
+            stem = future_to_stem[future]
+            completed += 1
+            try:
+                if future.result():
+                    copied += 1
+            except Exception as exc:  # per-item hata: topla, işlemeye devam et
+                errors.append((stem, exc))
+            if completed % 2000 == 0:
+                elapsed = time.time() - t0
+                rate = completed / elapsed if elapsed > 0 else 0.0
+                eta = (total - completed) / rate if rate > 0 else float("inf")
+                print(
+                    f"copy_pairs: {completed}/{total} tamamlandı "
+                    f"({rate:.1f} çift/sn, ETA {eta:.0f}sn)"
+                )
+
+    if errors:
+        first_stem, first_exc = errors[0]
+        raise RuntimeError(
+            f"copy_pairs: {len(errors)}/{total} çift kopyalanamadı "
+            f"(ilk hata, stem={first_stem!r}: {first_exc!r})"
+        ) from first_exc
+
     return copied
