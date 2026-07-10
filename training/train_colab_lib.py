@@ -55,10 +55,44 @@ def load_stem_categories(manifest_path: str | Path) -> dict[str, str]:
     return result
 
 
+SAMPLER_PRESET_V1: dict[str, float] = {"transparent": 0.20, "camouflage": 0.20}
+"""v1 fine-tune koşusunda (`epoch_1.pth`) fiilen kullanılan hedef —
+`docs/reports/2026-07-faz2-veri.md` §5 madde 3. Yalnız transparent+camouflage'ı
+sabitlediği için, geri kalan %60'lık pay hair/complex/thin/general arasında HAM
+sayılarıyla orantılı bölüşülüyordu; hair'in ham hacmi (~9422) complex (~2190) ve
+thin'in (~810) çok üzerinde olduğundan bu %60'ın büyük kısmını hair alıyor,
+complex/thin'e neredeyse hiç pay kalmıyordu — v1 karşılaştırma raporundaki
+"catastrophic forgetting"in (complex MAE 0.156 vs 0.024 baseline, thin 0.090 vs
+0.018, hair 0.013 vs 0.0045) kök nedeni."""
+
+SAMPLER_PRESET_V2: dict[str, float] = {
+    "camouflage": 0.18,
+    "transparent": 0.18,
+    "hair": 0.22,
+    "complex": 0.20,
+    "thin": 0.12,
+    "general": 0.09,
+}
+"""v2 rebalancing hedefi (toplam %99 — kasıtlı olarak <1.0, `compute_sample_weights`
+`sum(target_share) >= 1.0` durumunda ValueError fırlatır; kalan %1 manifest'te
+kategorisi bulunamayan `_other` stem'lere ayrılıyor). camouflage ve transparent
+v1'deki %20'den %18'e hafifçe DÜŞÜRÜLDÜ (camouflage'ın ham payı zaten ~%36 —
+v1'de sampler dışı bırakılsa bile doğal olarak büyük bir pay alıyordu; v1'deki
+kazanımları büyük ölçüde korurken diğer kategorilere yer açmak için ufak bir
+kesinti yeterli). hair/complex/thin'e AÇIKÇA hedef verildi (v1'de hedefsizdi) —
+hair %22, complex %20, thin %12 — v1'de çöken bu üç kategoriyi toparlamak için;
+general %9 ile kalan, çoğunlukla kürasyonlu genel-amaçlı görselleri temsil
+ediyor. Bkz. `.superpowers/sdd/v2-hazirlik-report.md`."""
+
+SAMPLER_PRESETS: dict[str, dict[str, float]] = {"v1": SAMPLER_PRESET_V1, "v2": SAMPLER_PRESET_V2}
+"""Notebook `SAMPLER_PRESET` parametresinin ("v1"/"v2") çözümlendiği tablo —
+bkz. `training/train_colab.ipynb` parametre hücresi ve hücre (e)."""
+
+
 def compute_sample_weights(
     stems: list[str],
     stem_category: dict[str, str],
-    target_share: dict[str, float],
+    target_share: dict[str, float] | None = None,
     default_category: str = "_other",
 ) -> list[float]:
     """`stems` (MyData.image_paths ile AYNI SIRADA olmalı — WeightedRandomSampler
@@ -66,6 +100,14 @@ def compute_sample_weights(
     adı geçen kategorilerin epoch-içi BEKLENEN payını `target_share`'e sabitleyen,
     geri kalan kategorilerin KENDİ ARALARINDAKİ göreli oranını (ham sayılarıyla
     orantılı) koruyan ağırlıklar üretir.
+
+    `target_share=None` (varsayılan) ise `SAMPLER_PRESET_V1` kullanılır — v1
+    fine-tune koşusunun (epoch_1.pth) davranışıyla BİREBİR aynı (geriye dönük
+    uyumluluk: mevcut çağıranlar hiçbir şey değiştirmeden aynı sonucu almaya
+    devam eder). v2 rebalancing için `SAMPLER_PRESET_V2` (veya
+    `SAMPLER_PRESETS["v2"]`) açıkça geçilmeli — bkz. modül başı `SAMPLER_PRESETS`
+    ve v2-hazırlik raporu (v1'de transparent+camouflage payı birleşik >%50'ye
+    çıkıp complex/thin/hair'de "catastrophic forgetting"e yol açmıştı).
 
     Algoritma: hedefi olan bir kategori c için örnek başına ağırlık =
     target_share[c] / count(c) (kategori toplamda tam olarak target_share[c]
@@ -81,6 +123,8 @@ def compute_sample_weights(
     `train.py`nin `prepare_dataloader`'ı (`shuffle=is_train, sampler=None`)
     üzerine YALNIZ bir `sampler=` argümanı eklenir (bkz. notebook eğitim hücresi).
     """
+    if target_share is None:
+        target_share = SAMPLER_PRESET_V1
     categories = [stem_category.get(s, default_category) for s in stems]
     counts = Counter(categories)
 

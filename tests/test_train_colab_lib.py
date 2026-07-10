@@ -7,6 +7,9 @@ import json
 import pytest
 
 from training.train_colab_lib import (
+    SAMPLER_PRESET_V1,
+    SAMPLER_PRESET_V2,
+    SAMPLER_PRESETS,
     apply_config_patches,
     compute_expected_shares,
     compute_sample_weights,
@@ -72,6 +75,91 @@ def test_compute_sample_weights_rejects_impossible_target():
     stems, stem_category = _synthetic_stems({"a": 5, "b": 5})
     with pytest.raises(ValueError):
         compute_sample_weights(stems, stem_category, {"a": 0.6, "b": 0.6})
+
+
+# ============================================================================
+# 1b) v2 sampler preset (rebalancing — v1'deki catastrophic forgetting fix)
+# ============================================================================
+def test_sampler_preset_v1_matches_default_target_share():
+    # target_share=None (varsayılan) v1 fine-tune koşusunun (epoch_1.pth)
+    # davranışıyla BİREBİR aynı olmalı — geriye dönük uyumluluk.
+    counts = {"transparent": 4100, "camouflage": 8080, "hair": 9422, "complex": 2190, "thin": 810}
+    stems, stem_category = _synthetic_stems(counts)
+    weights_default = compute_sample_weights(stems, stem_category, None)
+    weights_explicit = compute_sample_weights(stems, stem_category, SAMPLER_PRESET_V1)
+    assert weights_default == weights_explicit
+    assert SAMPLER_PRESET_V1 == {"transparent": 0.20, "camouflage": 0.20}
+
+
+def test_sampler_presets_registry_has_v1_and_v2():
+    assert set(SAMPLER_PRESETS) == {"v1", "v2"}
+    assert SAMPLER_PRESETS["v1"] is SAMPLER_PRESET_V1
+    assert SAMPLER_PRESETS["v2"] is SAMPLER_PRESET_V2
+    # Her iki preset de <1.0 toplamalı — compute_sample_weights sum(target_share) >= 1.0
+    # durumunda ValueError fırlatır (kalan pay hep bir "diğer/_other" payına ayrılmalı).
+    for preset in SAMPLER_PRESETS.values():
+        assert sum(preset.values()) < 1.0
+
+
+def test_sampler_preset_v2_hits_target_shares_within_one_percent():
+    # `docs/reports/2026-07-faz2-veri.md` §2'nin belgelediği ham/materyalize
+    # sayılara yakın, TÜM 6 kategorinin de mevcut olduğu bir dağılım (camouflage
+    # ×2, transparent ×10 fiziksel çarpanlarıyla materyalize edilmiş; general=4000
+    # senaryosu — doc §2 tablosu): camouflage doğal olarak en büyük paylardan biri
+    # (~%28), complex/thin ise v1'de neredeyse hiç pay alamayan küçük kategoriler
+    # (bkz. v1-entegrasyon + bgr-v1-comparison raporlarındaki catastrophic
+    # forgetting bulgusu). Tüm hedefli kategoriler mevcut olduğunda preset'in
+    # kendi %99 toplamı (kasıtlı <1.0, kalan %1 boş "_other" payı) yalnız ~%1'lik
+    # bir renormalizasyona yol açar — bu yüzden "within 1%" toleransı anlamlı.
+    counts = {
+        "camouflage": 8080,   # 4040 ham × 2
+        "hair": 9422,
+        "transparent": 4100,  # 410 ham × 10
+        "complex": 2190,
+        "thin": 810,
+        "general": 4000,
+    }
+    stems, stem_category = _synthetic_stems(counts)
+    raw_total = sum(counts.values())
+    raw_share = {c: n / raw_total for c, n in counts.items()}
+
+    weights = compute_sample_weights(stems, stem_category, SAMPLER_PRESET_V2)
+    achieved = compute_expected_shares(weights, stems, stem_category)
+
+    for cat, target in SAMPLER_PRESET_V2.items():
+        if cat not in achieved:
+            continue
+        assert achieved[cat] == pytest.approx(target, abs=0.01), (
+            f"{cat}: hedef %{target * 100:.1f}, hesaplanan %{achieved[cat] * 100:.1f}"
+        )
+
+    # v1'in kök nedenini (complex/thin'in ham paydan çok daha düşük efektif pay
+    # alması) v2'nin düzelttiğini doğrula: complex/thin artık ham paylarından
+    # AÇIKÇA daha yüksek örnekleniyor, camouflage ise ham payından DÜŞÜK
+    # (background: "camo downweighted from its raw ~%28-36 share").
+    assert achieved["complex"] > raw_share["complex"]
+    assert achieved["thin"] > raw_share["thin"]
+    assert achieved["camouflage"] < raw_share["camouflage"]
+
+
+def test_sampler_preset_v2_includes_general_when_present():
+    counts = {
+        "camouflage": 8080,
+        "hair": 9422,
+        "transparent": 4100,
+        "complex": 2190,
+        "thin": 810,
+        "general": 4000,
+    }
+    stems, stem_category = _synthetic_stems(counts)
+    weights = compute_sample_weights(stems, stem_category, SAMPLER_PRESET_V2)
+    achieved = compute_expected_shares(weights, stems, stem_category)
+    # Preset toplamı %99 (kasıtlı <1.0) VE tüm 6 kategori de mevcut/hedefli
+    # olduğundan, "_other" payını alacak hiçbir örnek yok — gerçek WeightedRandomSampler
+    # yalnız GÖRECELİ ağırlıklarla çalıştığından bu, ~%1'lik zararsız bir
+    # renormalizasyona yol açar (0.09 hedefi -> 0.09/0.99 ≈ 0.0909 gerçekleşen).
+    assert achieved["general"] == pytest.approx(0.09, abs=0.01)
+    assert sum(achieved.values()) == pytest.approx(1.0, abs=1e-9)
 
 
 def test_load_stem_categories(tmp_path):
