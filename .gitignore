@@ -5,6 +5,9 @@ data/*
 !data/.gitkeep
 !data/testset/manifest.jsonl
 !data/train_sources.json
+!data/checkpoints/
+!data/checkpoints/.gitkeep
+data/checkpoints/*.pth
 results/*
 !results/.gitkeep
 .env
