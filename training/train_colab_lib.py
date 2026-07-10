@@ -67,22 +67,26 @@ complex/thin'e neredeyse hiç pay kalmıyordu — v1 karşılaştırma raporunda
 
 SAMPLER_PRESET_V2: dict[str, float] = {
     "camouflage": 0.18,
-    "transparent": 0.18,
-    "hair": 0.22,
+    "transparent": 0.20,
+    "hair": 0.20,
     "complex": 0.20,
     "thin": 0.12,
-    "general": 0.09,
+    "general": 0.10,
 }
-"""v2 rebalancing hedefi (toplam %99 — kasıtlı olarak <1.0, `compute_sample_weights`
-`sum(target_share) >= 1.0` durumunda ValueError fırlatır; kalan %1 manifest'te
-kategorisi bulunamayan `_other` stem'lere ayrılıyor). camouflage ve transparent
-v1'deki %20'den %18'e hafifçe DÜŞÜRÜLDÜ (camouflage'ın ham payı zaten ~%36 —
-v1'de sampler dışı bırakılsa bile doğal olarak büyük bir pay alıyordu; v1'deki
-kazanımları büyük ölçüde korurken diğer kategorilere yer açmak için ufak bir
-kesinti yeterli). hair/complex/thin'e AÇIKÇA hedef verildi (v1'de hedefsizdi) —
-hair %22, complex %20, thin %12 — v1'de çöken bu üç kategoriyi toparlamak için;
-general %9 ile kalan, çoğunlukla kürasyonlu genel-amaçlı görselleri temsil
-ediyor. Bkz. `.superpowers/sdd/v2-hazirlik-report.md`."""
+"""v2 rebalancing hedefi (toplam TAM %100 — `compute_sample_weights` yalnız
+`sum > 1.0`'da ValueError fırlatır; toplam tam 1.0 iken manifest'te kategorisi
+bulunamayan `_other` stem'lere SIFIR ağırlık düşer, yani hiç örneklenmezler —
+bilinçli tercih: kategorisi bilinmeyen veri eğitim karışımını bulandırmasın;
+notebook hücre (e) zaten `n_unknown` sayısını konsola yazdırıyor). camouflage
+v1'deki %20'den %18'e hafifçe DÜŞÜRÜLDÜ (ham payı zaten ~%28-36 — v1'de sampler
+dışı bırakılsa bile doğal olarak büyük pay alırdı; v1 kazanımını korumaya %18
+yeter). transparent %20'de TUTULDU: ideogram skorlaması somutlaştırdı —
+transparent, bgr-v1'in ideogram'a KAYBETTİĞİ tek kategori (MAE 0.0437 vs
+0.0343, en yakın kovalama hedefi), payını kısmak yanlış olurdu. hair/complex/
+thin'e AÇIKÇA hedef verildi (v1'de hedefsizdi) — hair %20 (mutlak hatası zaten
+küçük, 0.013 MAE — toparlama hedefi mütevazı), complex %20, thin %12 — v1'de
+çöken kategorileri toparlamak için; general %10 kürasyonlu genel-amaçlı
+görseller. Bkz. `.superpowers/sdd/v2-hazirlik-report.md`."""
 
 SAMPLER_PRESETS: dict[str, dict[str, float]] = {"v1": SAMPLER_PRESET_V1, "v2": SAMPLER_PRESET_V2}
 """Notebook `SAMPLER_PRESET` parametresinin ("v1"/"v2") çözümlendiği tablo —
@@ -130,9 +134,9 @@ def compute_sample_weights(
 
     targeted = {c: share for c, share in target_share.items() if counts.get(c, 0) > 0}
     sum_targeted = sum(targeted.values())
-    if sum_targeted >= 1.0:
-        raise ValueError(f"target_share toplamı >= 1.0 olamaz (mevcut kategorilerde): {targeted}")
-    remaining_mass = 1.0 - sum_targeted
+    if sum_targeted > 1.0 + 1e-9:  # tam 1.0'a İZİN VAR (bkz. SAMPLER_PRESET_V2); epsilon fp toplama gürültüsü için
+        raise ValueError(f"target_share toplamı > 1.0 olamaz (mevcut kategorilerde): {targeted}")
+    remaining_mass = max(0.0, 1.0 - sum_targeted)  # sum==1.0 -> hedefsiz (_other) örneklere 0 ağırlık (hiç örneklenmezler)
 
     other_categories = [c for c in counts if c not in targeted]
     n_other_total = sum(counts[c] for c in other_categories)

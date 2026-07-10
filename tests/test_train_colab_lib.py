@@ -95,10 +95,16 @@ def test_sampler_presets_registry_has_v1_and_v2():
     assert set(SAMPLER_PRESETS) == {"v1", "v2"}
     assert SAMPLER_PRESETS["v1"] is SAMPLER_PRESET_V1
     assert SAMPLER_PRESETS["v2"] is SAMPLER_PRESET_V2
-    # Her iki preset de <1.0 toplamalı — compute_sample_weights sum(target_share) >= 1.0
-    # durumunda ValueError fırlatır (kalan pay hep bir "diğer/_other" payına ayrılmalı).
+    # compute_sample_weights yalnız sum > 1.0'da ValueError fırlatır; tam 1.0'a İZİN VAR
+    # (o durumda hedefsiz "_other" örneklere 0 ağırlık düşer — bkz. SAMPLER_PRESET_V2 docstring'i).
     for preset in SAMPLER_PRESETS.values():
-        assert sum(preset.values()) < 1.0
+        assert sum(preset.values()) <= 1.0 + 1e-9
+    # v2 kasıtlı olarak TAM %100 dağıtır: camo 18 + transparent 20 + hair 20 +
+    # complex 20 + thin 12 + general 10 (ideogram skorlaması sonrası ayar —
+    # transparent en yakın kovalama hedefi olduğu için %20'de tutuldu).
+    assert sum(SAMPLER_PRESET_V2.values()) == pytest.approx(1.0, abs=1e-9)
+    assert SAMPLER_PRESET_V2["transparent"] == pytest.approx(0.20)
+    assert SAMPLER_PRESET_V2["camouflage"] == pytest.approx(0.18)
 
 
 def test_sampler_preset_v2_hits_target_shares_within_one_percent():
@@ -108,9 +114,9 @@ def test_sampler_preset_v2_hits_target_shares_within_one_percent():
     # senaryosu — doc §2 tablosu): camouflage doğal olarak en büyük paylardan biri
     # (~%28), complex/thin ise v1'de neredeyse hiç pay alamayan küçük kategoriler
     # (bkz. v1-entegrasyon + bgr-v1-comparison raporlarındaki catastrophic
-    # forgetting bulgusu). Tüm hedefli kategoriler mevcut olduğunda preset'in
-    # kendi %99 toplamı (kasıtlı <1.0, kalan %1 boş "_other" payı) yalnız ~%1'lik
-    # bir renormalizasyona yol açar — bu yüzden "within 1%" toleransı anlamlı.
+    # forgetting bulgusu). Preset toplamı tam %100 olduğundan ve tüm kategoriler
+    # hedefli olduğundan gerçekleşen paylar hedeflerle BİREBİR örtüşür; tolerans
+    # yine de spec'teki "within 1%" olarak bırakıldı.
     counts = {
         "camouflage": 8080,   # 4040 ham × 2
         "hair": 9422,
@@ -154,12 +160,30 @@ def test_sampler_preset_v2_includes_general_when_present():
     stems, stem_category = _synthetic_stems(counts)
     weights = compute_sample_weights(stems, stem_category, SAMPLER_PRESET_V2)
     achieved = compute_expected_shares(weights, stems, stem_category)
-    # Preset toplamı %99 (kasıtlı <1.0) VE tüm 6 kategori de mevcut/hedefli
-    # olduğundan, "_other" payını alacak hiçbir örnek yok — gerçek WeightedRandomSampler
-    # yalnız GÖRECELİ ağırlıklarla çalıştığından bu, ~%1'lik zararsız bir
-    # renormalizasyona yol açar (0.09 hedefi -> 0.09/0.99 ≈ 0.0909 gerçekleşen).
-    assert achieved["general"] == pytest.approx(0.09, abs=0.01)
+    # Preset toplamı tam %100 ve tüm 6 kategori mevcut/hedefli — gerçekleşen
+    # paylar hedeflerle birebir örtüşmeli, renormalizasyon yok.
+    assert achieved["general"] == pytest.approx(0.10, abs=1e-9)
     assert sum(achieved.values()) == pytest.approx(1.0, abs=1e-9)
+
+
+def test_sampler_preset_v2_gives_zero_weight_to_unknown_stems():
+    # Preset toplamı tam 1.0 iken manifest'te kategorisi bulunamayan ("_other")
+    # stem'lere SIFIR ağırlık düşmeli (hiç örneklenmezler) — bilinçli tercih,
+    # bkz. SAMPLER_PRESET_V2 docstring'i. ValueError FIRLATILMAMALI (yalnız
+    # sum > 1.0 hatadır).
+    counts = {"camouflage": 100, "transparent": 100, "hair": 100, "complex": 100, "thin": 100, "general": 100}
+    stems, stem_category = _synthetic_stems(counts)
+    stems_with_unknown = stems + ["gizemli_stem_0001", "gizemli_stem_0002"]  # manifest'te yok
+
+    weights = compute_sample_weights(stems_with_unknown, stem_category, SAMPLER_PRESET_V2)
+    assert weights[-1] == 0.0
+    assert weights[-2] == 0.0
+    assert all(w > 0 for w in weights[:-2])
+
+    achieved = compute_expected_shares(weights, stems_with_unknown, stem_category)
+    assert achieved.get("_other", 0.0) == 0.0
+    for cat, target in SAMPLER_PRESET_V2.items():
+        assert achieved[cat] == pytest.approx(target, abs=1e-9)
 
 
 def test_load_stem_categories(tmp_path):
