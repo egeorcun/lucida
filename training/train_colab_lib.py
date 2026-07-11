@@ -22,11 +22,13 @@ Altı bağımsız endişe kapsar:
    (aynı VM'de notebook'un yeniden koşturulması patlamamalı).
 6. Drive→yerel disk veri kopyalama (`copy_pairs`) — hem im hem gt dosya boyutu
    doğrulamalı (yarım kalmış/kesilmiş kopyalar onarılır).
-7. v3 — VAL sızıntı hariç tutma + kompozit manifest merge (`strip_composite_
-   copy_suffix` / `derive_val_excluded_source_ids` / `merge_composite_manifest`)
-   — `training/v3_veri_guncelleme_hucresi.py`'nin `_o00` üretimi öncesi VAL
-   kümesini hariç tutması ve Drive'daki kompozit manifest'i (üzerine yazmadan)
-   güncellemesi için (bkz. o dosyanın modül docstring'i).
+7. v3 — VAL sızıntı hariç tutma + kompozit manifest merge + boş-manifest
+   koruması (`strip_composite_copy_suffix` / `derive_val_excluded_source_ids` /
+   `merge_composite_manifest` / `ensure_manifest_pairs`) — `training/
+   v3_veri_guncelleme_hucresi.py`'nin `_o00` üretimi öncesi VAL kümesini hariç
+   tutması, Drive'daki kompozit manifest'i (üzerine yazmadan) güncellemesi ve
+   boş bir manifest'le export'a geçmeyi erken/yüksek sesle engellemesi için
+   (bkz. o dosyanın modül docstring'i).
 """
 from __future__ import annotations
 
@@ -627,3 +629,28 @@ def merge_composite_manifest(local_manifest_path: str | Path, drive_manifest_pat
     if new_rows:
         append_entries(str(drive_manifest_path), new_rows)
     return len(new_rows)
+
+
+def ensure_manifest_pairs(manifest_path: str | Path, min_pairs: int = 1) -> int:
+    """`manifest_path`teki GT'li (gt_alpha != null) satır sayısını döndürür;
+    dosya yoksa veya sayı `min_pairs`'ın altındaysa NET bir `RuntimeError`
+    fırlatır — boş/eksik bir manifest'le pipeline'ın devam edip çok daha
+    aşağıda anlaşılmaz bir hatayla (ör. export'un FileNotFoundError'ı) çökmesini
+    önler (canlı v3 koşusu dersi: ham veri hiç inmemişken manifest 0 çiftle
+    kuruldu, hata ancak export aşamasında — SEMPTOM olarak — göründü; bu guard
+    NEDENİ, manifest kurulumundan hemen sonra, yüksek sesle yakalar). Bkz.
+    `training/v3_veri_guncelleme_hucresi.py` "manifest" aşaması sonu."""
+    manifest_path = Path(manifest_path)
+    if not manifest_path.exists():
+        raise RuntimeError(
+            f"manifest dosyası yok: {manifest_path} — ham veri indirme/manifest kurulumu "
+            f"başarısız olmuş olmalı; önceki aşamaların loglarını inceleyin."
+        )
+    n = sum(1 for r in load_manifest(str(manifest_path)) if r.get("gt_alpha"))
+    if n < min_pairs:
+        raise RuntimeError(
+            f"manifest'te yalnız {n} GT'li çift var (< {min_pairs}): {manifest_path} — "
+            f"ham veri kaynakları inmemiş/boş olabilir; export'a GEÇİLMEYECEK "
+            f"(boş manifest'le devam etmek aşağıda anlaşılmaz hatalara yol açar)."
+        )
+    return n

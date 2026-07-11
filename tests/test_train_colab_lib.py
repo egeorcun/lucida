@@ -19,6 +19,7 @@ from training.train_colab_lib import (
     derive_val_excluded_source_ids,
     deterministic_val_split,
     effective_lr,
+    ensure_manifest_pairs,
     find_latest_checkpoint,
     fixed_eval_subset,
     load_or_create_val_split,
@@ -655,6 +656,42 @@ def test_merge_composite_manifest_missing_local_returns_zero(tmp_path):
 
 
 # ============================================================================
+# 7c) boş-manifest guard'ı (ensure_manifest_pairs) — canlı v3 koşusu dersi:
+#     ham veri inmemişken manifest 0 çiftle kuruldu, hata ancak export'ta
+#     (SEMPTOM olarak) göründü; guard NEDENİ manifest kurulumunda yakalar.
+# ============================================================================
+def test_ensure_manifest_pairs_returns_count_when_nonempty(tmp_path):
+    manifest = tmp_path / "manifest.jsonl"
+    rows = [
+        {"id": "a", "image": "im/a.jpg", "category": "transparent", "gt_alpha": "gt/a.png"},
+        {"id": "b", "image": "im/b.jpg", "category": "hair", "gt_alpha": "gt/b.png"},
+        {"id": "c", "image": "im/c.jpg", "category": "product", "gt_alpha": None},  # GT'siz -> sayılmaz
+    ]
+    manifest.write_text("\n".join(json.dumps(r) for r in rows) + "\n")
+    assert ensure_manifest_pairs(manifest) == 2
+
+
+def test_ensure_manifest_pairs_raises_on_missing_file(tmp_path):
+    with pytest.raises(RuntimeError, match="manifest dosyası yok"):
+        ensure_manifest_pairs(tmp_path / "yok.jsonl")
+
+
+def test_ensure_manifest_pairs_raises_on_empty_manifest(tmp_path):
+    manifest = tmp_path / "manifest.jsonl"
+    manifest.write_text("")  # 0 satır — canlı koşudaki durum
+    with pytest.raises(RuntimeError, match="GEÇİLMEYECEK"):
+        ensure_manifest_pairs(manifest)
+
+
+def test_ensure_manifest_pairs_raises_when_all_rows_lack_gt(tmp_path):
+    manifest = tmp_path / "manifest.jsonl"
+    rows = [{"id": "a", "image": "im/a.jpg", "category": "product", "gt_alpha": None}]
+    manifest.write_text("\n".join(json.dumps(r) for r in rows) + "\n")
+    with pytest.raises(RuntimeError, match="0 GT'li çift"):
+        ensure_manifest_pairs(manifest)
+
+
+# ============================================================================
 # 7b) _o00 uçtan uca simülasyon: küçük bir fixture üzerinde make_composites.run()
 #     -> exclude_source_ids (val_stems.json'dan türetilen) -> merge_composite_
 #     manifest ile Drive manifestine merge -- v3_veri_guncelleme_hucresi.py'nin
@@ -690,6 +727,18 @@ def test_o00_end_to_end_simulation_with_val_exclusion_and_drive_merge(tmp_path):
     # val_stems.json: kaynak "a"nın BİR _v kopyası VAL'e düşmüş -- "a" tamamen
     # hariç tutulmalı (make_composites hâlâ _v'ler için "a"yı işler, ama _o00
     # üretiminden dışlanır).
+    # Boş-manifest guard'ı (v3 hücresinin "manifest" aşaması sonu — canlı koşu
+    # dersi): dolu kaynak manifest'te guard GEÇER ve GT'li çift sayısını döner;
+    # boş/eksik manifest'te (ham veri inmemiş senaryosu) RuntimeError fırlatıp
+    # composites_o/export'a GEÇİLMESİNİ engeller.
+    assert ensure_manifest_pairs(source_manifest) == 3
+    empty_manifest = tmp_path / "empty_manifest.jsonl"
+    empty_manifest.write_text("")
+    with pytest.raises(RuntimeError, match="GEÇİLMEYECEK"):
+        ensure_manifest_pairs(empty_manifest)
+    with pytest.raises(RuntimeError, match="manifest dosyası yok"):
+        ensure_manifest_pairs(tmp_path / "hic_kurulmadi.jsonl")
+
     val_stems = ["a_v03"]
     excluded, unmatched = derive_val_excluded_source_ids(val_stems)
     assert excluded == {"a"}
