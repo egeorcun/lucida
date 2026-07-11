@@ -22,6 +22,11 @@ Altı bağımsız endişe kapsar:
    (aynı VM'de notebook'un yeniden koşturulması patlamamalı).
 6. Drive→yerel disk veri kopyalama (`copy_pairs`) — hem im hem gt dosya boyutu
    doğrulamalı (yarım kalmış/kesilmiş kopyalar onarılır).
+7. v3 — VAL sızıntı hariç tutma + kompozit manifest merge (`strip_composite_
+   copy_suffix` / `derive_val_excluded_source_ids` / `merge_composite_manifest`)
+   — `training/v3_veri_guncelleme_hucresi.py`'nin `_o00` üretimi öncesi VAL
+   kümesini hariç tutması ve Drive'daki kompozit manifest'i (üzerine yazmadan)
+   güncellemesi için (bkz. o dosyanın modül docstring'i).
 """
 from __future__ import annotations
 
@@ -30,6 +35,8 @@ import math
 import re
 from collections import Counter
 from pathlib import Path
+
+from benchmark.testset import append_entries, load_manifest
 
 CKPT_FILENAME_RE = re.compile(r"^epoch_(\d+)\.pth$")
 
@@ -88,9 +95,77 @@ küçük, 0.013 MAE — toparlama hedefi mütevazı), complex %20, thin %12 — 
 çöken kategorileri toparlamak için; general %10 kürasyonlu genel-amaçlı
 görseller. Bkz. `.superpowers/sdd/v2-hazirlik-report.md`."""
 
-SAMPLER_PRESETS: dict[str, dict[str, float]] = {"v1": SAMPLER_PRESET_V1, "v2": SAMPLER_PRESET_V2}
-"""Notebook `SAMPLER_PRESET` parametresinin ("v1"/"v2") çözümlendiği tablo —
+SAMPLER_PRESET_V3: dict[str, float] = {
+    "camouflage": 0.16,
+    "transparent": 0.24,
+    "hair": 0.18,
+    "complex": 0.20,
+    "thin": 0.12,
+    "general": 0.10,
+}
+"""v3 rebalancing hedefi (toplam TAM %100) — v2'nin gerçek benchmark sonuçlarından
+sonraki ayar (bkz. `results/baseline/metrics.json`, `.superpowers/sdd/
+v3-hazirlik-report.md`). İki somut bulguya cevap verir:
+
+1. **Domain gap / over-deletion kalıcılığı**: gerçek-fotoğraf benchmark'ında
+   over-deletion'ın v1→v2 arası düzelmemesinin kök nedeni, camouflage DIŞINDAKİ
+   TÜM kategorilerin yalnız SENTETİK kompozit arka planlarda eğitilmesiydi —
+   sampler payını değiştirmek bunu çözmez, veriye orijinal arka plan örnekleri
+   (`scripts/make_composites.py` `_o00` kopyaları — bkz. o dosyanın v3 notu)
+   eklemek gerekiyordu. Sampler tarafında yapılabilecek TEK şey, bu yeni verinin
+   epoch içinde yeterince görülmesini sağlamak.
+2. **transparent v1→v2 arası KÖTÜLEŞTİ** (MAE 0.0437→0.0481) — ideogram'ın
+   0.0343'lük hedefinden UZAKLAŞTIK (v2'nin %18'e düşürdüğü pay yanlış yönde
+   hareket etmiş olabilir). v3 transparent'ı %24'e (v2'nin %18'inden +6 puan)
+   YÜKSELTEREK ideogram'ı kovalamayı önceliklendiriyor — bu preset'in en büyük
+   tek payı.
+   camouflage v2'de zaten güçlü marj bırakıyor (bgr-v2 MAE 0.0310, en yakın
+   genel-amaçlı rakip birefnet-hr 0.0752 — %59 daha iyi, ideogram ise camo'da
+   ÇOK daha kötü: 0.1179) — bu marj sayesinde camo payı v2'nin %18'inden %16'ya
+   biraz daha düşürülüp kazanılan 2 puan transparent'a aktarılabildi. hair
+   %20'den %18'e (mutlak hatası zaten küçük, 0.0156 MAE), complex/thin/general
+   v2'deki değerlerinde (%20/%12/%10) KORUNDU (v1'in çöken kategorileri — bkz.
+   SAMPLER_PRESET_V2 docstring'i — toparlanmaya devam ediyor, henüz payı
+   azaltacak kanıt yok). Bkz. `.superpowers/sdd/v3-hazirlik-report.md`."""
+
+SAMPLER_PRESETS: dict[str, dict[str, float]] = {
+    "v1": SAMPLER_PRESET_V1,
+    "v2": SAMPLER_PRESET_V2,
+    "v3": SAMPLER_PRESET_V3,
+}
+"""Notebook `SAMPLER_PRESET` parametresinin ("v1"/"v2"/"v3") çözümlendiği tablo —
 bkz. `training/train_colab.ipynb` parametre hücresi ve hücre (e)."""
+
+
+def resolve_sampler_num_samples(dataset_len: int, num_samples: int | None = None) -> int:
+    """`WeightedRandomSampler(weights, num_samples=...)`'a verilecek değeri çözer
+    (torch'a bağımlı olmadan test edilebilmesi için sampler NESNESİ değil, yalnız
+    bu SAYIYI hesaplayan saf fonksiyon — bkz. modül başı docstring "torch/PIL
+    içe aktarmaz" ilkesi).
+
+    `num_samples=None` (varsayılan): v1/v2 davranışıyla BİREBİR aynı —
+    `dataset_len` (o anki `len(train_dataset)`) döner, yani epoch uzunluğu veri
+    setiyle birlikte büyür/küçülür.
+
+    `num_samples` verilirse (v3): epoch uzunluğu veri setinin gerçek boyutundan
+    BAĞIMSIZ, SABİT bu değere kilitlenir. v3'te veri setine `scripts/
+    make_composites.py`'nin `_o00` kopyalarıyla ~14k yeni çift eklendiğinde
+    (bkz. o dosyanın v3 notu), `num_samples=None` bırakılsaydı epoch başına
+    iterasyon sayısı (ve dolayısıyla Colab birim maliyeti) da otomatik büyürdü;
+    notebook bunun yerine `EPOCH_NUM_SAMPLES=27715` (v2'nin epoch büyüklüğüyle
+    PARİTE) geçer — epoch maliyeti ~48 birimde sabit kalır. `WeightedRandomSampler`
+    zaten `replacement=True` ile çalıştığından `num_samples < dataset_len` veri
+    KAYBI değildir — yalnızca epoch'un ne kadar örnek çektiğini kısaltır, yeni
+    eklenen `_o00` örnekleri sampler ağırlıkları üzerinden (kategori paylarına
+    göre) yine olasılıksal olarak seçilebilir kalır.
+
+    `num_samples <= 0` -> `ValueError` (WeightedRandomSampler'ın kendisi de bunu
+    reddeder, ama net bir mesajla erken yakalanır)."""
+    if num_samples is None:
+        return dataset_len
+    if num_samples <= 0:
+        raise ValueError(f"num_samples > 0 olmalı: {num_samples}")
+    return num_samples
 
 
 def compute_sample_weights(
@@ -462,3 +537,70 @@ def copy_pairs(
         ) from first_exc
 
     return copied
+
+
+# ============================================================================
+# 7) v3 — VAL sızıntı hariç tutma + kompozit manifest merge
+# ============================================================================
+_COMPOSITE_COPY_SUFFIX_RE = re.compile(r"_[vo]\d{2}$")
+
+
+def strip_composite_copy_suffix(stem: str) -> str:
+    """`<kaynak_id>_v<NN>` veya `<kaynak_id>_o<NN>` -> `<kaynak_id>` (bkz.
+    `scripts/make_composites.py` isimlendirme sözleşmesi: `_v<NN>` compose'lu
+    kopyalar, `_o<NN>` orijinal-arka-plan kopyaları). Eşleşme yoksa (beklenmeyen
+    bir stem) `stem` OLDUĞU GİBİ döner — aşırı-hariç tutmaktansa az-hariç tutmak
+    tercih edilir (bir kaynak yanlışlıkla VAL sanılıp atlanırsa yalnız o tek
+    `_o00` eksik kalır; sızıntı riski YOKTUR, yalnızca kaçırılan bir fırsat)."""
+    return _COMPOSITE_COPY_SUFFIX_RE.sub("", stem)
+
+
+def derive_val_excluded_source_ids(val_stems: list[str]) -> set[str]:
+    """VAL kümesindeki (kompozit) stem'lerden KAYNAK satır id'lerini türetir —
+    bu id'ler `scripts/make_composites.py`'nin `_o00` üretiminden hariç
+    tutulmalı (VAL sızıntı koruması): VAL_HOLDOUT zaten belirli `_v<NN>`/`_o<NN>`
+    kopyalarını içeriyor olsa da, AYNI kaynak görsele ait BAŞKA bir `_o00`
+    kopyasını eğitim setine eklemek, o görselin (farklı bir varyantla da olsa)
+    hem TRAIN hem VAL'de görülmesi anlamına gelir — model o KAYNAK görseli
+    ezberleyebilir. `training.train_colab_lib.load_or_create_val_split`in
+    yazdığı `val_stems.json`daki `"val_stems"` listesi doğrudan bu fonksiyona
+    verilir (bkz. `training/v3_veri_guncelleme_hucresi.py`)."""
+    return {strip_composite_copy_suffix(s) for s in val_stems}
+
+
+def merge_composite_manifest(local_manifest_path: str | Path, drive_manifest_path: str | Path) -> int:
+    """`local_manifest_path`teki satırları `drive_manifest_path`e APPEND eder —
+    yalnız `drive_manifest_path`de henüz OLMAYAN `id`'ler (dedupe; idempotent:
+    aynı çağrı iki kez yapılırsa ikinci çağrı 0 satır ekler). `drive_manifest_
+    path` (v1/v2'nin TÜM `_v<NN>` satırlarını zaten içeren, büyük — ~28k+ satır
+    — Drive kopyası) ASLA baştan okunup YENİDEN YAZILMAZ, yalnız açılıp eklenir
+    (`benchmark.testset.append_entries`) — `training/v3_veri_guncelleme_
+    hucresi.py`'nin `shutil.copy2` ile TAM üzerine yazan `colab_devam_hucresi.py`
+    deseninden BİLİNÇLİ SAPMASI budur (o dosyada yerel kompozit manifest zaten
+    TAM/güncel olduğundan üzerine yazmak güvenliydi; burada yerel manifest
+    yalnız YENİ `_o00` satırlarını içeriyor). `local_manifest_path` yoksa
+    (hiç `_o00` üretilmemişse) sessizce `0` döner.
+
+    `drive_manifest_path` mevcutsa satırları TEK TEK okunup yalnız `id`
+    alanları kümeye eklenir (tam `load_manifest` + `_validate` çağrılmaz —
+    büyük dosyada yalnız id kümesi için gereksiz doğrulama/bellek maliyetinden
+    kaçınmak için); `local_manifest_path` ise (küçük, ~14k satır) tam
+    `load_manifest` ile okunur (tekrarlanan id koruması dahil)."""
+    local_manifest_path = Path(local_manifest_path)
+    drive_manifest_path = Path(drive_manifest_path)
+    if not local_manifest_path.exists():
+        return 0
+
+    local_rows = load_manifest(str(local_manifest_path))
+    existing_ids: set[str] = set()
+    if drive_manifest_path.exists():
+        with open(drive_manifest_path, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    existing_ids.add(json.loads(line)["id"])
+
+    new_rows = [r for r in local_rows if r["id"] not in existing_ids]
+    if new_rows:
+        append_entries(str(drive_manifest_path), new_rows)
+    return len(new_rows)

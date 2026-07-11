@@ -3,25 +3,31 @@ madde 6: sampler/oversampling + resume-tespiti mantığının GPU/Colab olmadan
 lokal doğrulanması). Gerçek Colab/torch/Drive ortamı gerektirmez, `slow`
 değildir."""
 import json
+from pathlib import Path
 
 import pytest
 
 from training.train_colab_lib import (
     SAMPLER_PRESET_V1,
     SAMPLER_PRESET_V2,
+    SAMPLER_PRESET_V3,
     SAMPLER_PRESETS,
     apply_config_patches,
     compute_expected_shares,
     compute_sample_weights,
     copy_pairs,
+    derive_val_excluded_source_ids,
     deterministic_val_split,
     effective_lr,
     find_latest_checkpoint,
     fixed_eval_subset,
     load_or_create_val_split,
     load_stem_categories,
+    merge_composite_manifest,
     prune_old_checkpoints,
+    resolve_sampler_num_samples,
     should_apply_finetune_reweight,
+    strip_composite_copy_suffix,
 )
 
 
@@ -91,10 +97,11 @@ def test_sampler_preset_v1_matches_default_target_share():
     assert SAMPLER_PRESET_V1 == {"transparent": 0.20, "camouflage": 0.20}
 
 
-def test_sampler_presets_registry_has_v1_and_v2():
-    assert set(SAMPLER_PRESETS) == {"v1", "v2"}
+def test_sampler_presets_registry_has_v1_v2_and_v3():
+    assert set(SAMPLER_PRESETS) == {"v1", "v2", "v3"}
     assert SAMPLER_PRESETS["v1"] is SAMPLER_PRESET_V1
     assert SAMPLER_PRESETS["v2"] is SAMPLER_PRESET_V2
+    assert SAMPLER_PRESETS["v3"] is SAMPLER_PRESET_V3
     # compute_sample_weights yalnız sum > 1.0'da ValueError fırlatır; tam 1.0'a İZİN VAR
     # (o durumda hedefsiz "_other" örneklere 0 ağırlık düşer — bkz. SAMPLER_PRESET_V2 docstring'i).
     for preset in SAMPLER_PRESETS.values():
@@ -184,6 +191,82 @@ def test_sampler_preset_v2_gives_zero_weight_to_unknown_stems():
     assert achieved.get("_other", 0.0) == 0.0
     for cat, target in SAMPLER_PRESET_V2.items():
         assert achieved[cat] == pytest.approx(target, abs=1e-9)
+
+
+# ============================================================================
+# 1c) v3 sampler preset (v2 gerçek benchmark sonrası ayar — bkz. modül docstring'i)
+# ============================================================================
+def test_sampler_preset_v3_values_and_sum_to_one():
+    assert SAMPLER_PRESET_V3 == {
+        "camouflage": 0.16,
+        "transparent": 0.24,
+        "hair": 0.18,
+        "complex": 0.20,
+        "thin": 0.12,
+        "general": 0.10,
+    }
+    assert sum(SAMPLER_PRESET_V3.values()) == pytest.approx(1.0, abs=1e-9)
+
+
+def test_sampler_preset_v3_pushes_transparent_above_v2():
+    # v2->v3'te transparent MAE kötüleşti (0.0437->0.0481, ideogram hedefi 0.0343) --
+    # v3 transparent payını v2'nin %20'sinden (bkz. SAMPLER_PRESET_V2 kaydı, güncel
+    # değer %20) %24'e YÜKSELTMELİ, en büyük tek pay olmalı.
+    assert SAMPLER_PRESET_V3["transparent"] > SAMPLER_PRESET_V2["transparent"]
+    assert SAMPLER_PRESET_V3["transparent"] == max(SAMPLER_PRESET_V3.values())
+
+
+def test_sampler_preset_v3_hits_target_shares_within_one_percent():
+    counts = {
+        "camouflage": 8080,
+        "hair": 9422,
+        "transparent": 4100,
+        "complex": 2190,
+        "thin": 810,
+        "general": 4000,
+    }
+    stems, stem_category = _synthetic_stems(counts)
+    weights = compute_sample_weights(stems, stem_category, SAMPLER_PRESET_V3)
+    achieved = compute_expected_shares(weights, stems, stem_category)
+    for cat, target in SAMPLER_PRESET_V3.items():
+        if cat not in achieved:
+            continue
+        assert achieved[cat] == pytest.approx(target, abs=0.01), (
+            f"{cat}: hedef %{target * 100:.1f}, hesaplanan %{achieved[cat] * 100:.1f}"
+        )
+
+
+def test_sampler_preset_v3_gives_zero_weight_to_unknown_stems():
+    counts = {"camouflage": 100, "transparent": 100, "hair": 100, "complex": 100, "thin": 100, "general": 100}
+    stems, stem_category = _synthetic_stems(counts)
+    stems_with_unknown = stems + ["gizemli_stem_0001"]  # örn. yeni bir _o00 ama manifest satırı eksik
+
+    weights = compute_sample_weights(stems_with_unknown, stem_category, SAMPLER_PRESET_V3)
+    assert weights[-1] == 0.0
+    assert all(w > 0 for w in weights[:-1])
+
+
+# ============================================================================
+# 1d) v3 sabit epoch uzunluğu (`resolve_sampler_num_samples`)
+# ============================================================================
+def test_resolve_sampler_num_samples_defaults_to_dataset_len():
+    # num_samples=None -> v1/v2 davranışı BİREBİR: dataset büyüklüğü döner.
+    assert resolve_sampler_num_samples(27715) == 27715
+    assert resolve_sampler_num_samples(41830) == 41830
+
+
+def test_resolve_sampler_num_samples_uses_fixed_value_when_given():
+    # v3: dataset ~14k _o00 ile büyüse bile (41830), sabit 27715 (v2 epoch
+    # parite) döner -- epoch maliyeti değişmez.
+    assert resolve_sampler_num_samples(41830, num_samples=27715) == 27715
+    assert resolve_sampler_num_samples(1000, num_samples=27715) == 27715  # dataset küçük olsa bile sabit değer
+
+
+def test_resolve_sampler_num_samples_rejects_non_positive():
+    with pytest.raises(ValueError):
+        resolve_sampler_num_samples(1000, num_samples=0)
+    with pytest.raises(ValueError):
+        resolve_sampler_num_samples(1000, num_samples=-5)
 
 
 def test_load_stem_categories(tmp_path):
@@ -479,3 +562,141 @@ def test_load_or_create_val_split_drops_vanished_val_stems(tmp_path):
     shrunk = [s for s in stems if s != val_first[0]]  # bir val görseli diskten silindi
     _, val2 = load_or_create_val_split(shrunk, seed=42, val_fraction=0.02, persist_path=persist)
     assert val2 == val_first[1:]
+
+
+# ============================================================================
+# 7) v3 — VAL sızıntı hariç tutma + kompozit manifest merge
+#    (bkz. training/v3_veri_guncelleme_hucresi.py)
+# ============================================================================
+def test_strip_composite_copy_suffix_strips_v_and_o_suffixes():
+    assert strip_composite_copy_suffix("camo_00365_v03") == "camo_00365"
+    assert strip_composite_copy_suffix("trans1_o00") == "trans1"
+    assert strip_composite_copy_suffix("hair_0042_v00") == "hair_0042"
+
+
+def test_strip_composite_copy_suffix_leaves_unmatched_stems_unchanged():
+    # az-hariç-tutmak tercih edilir (bkz. fonksiyon docstring'i) -- eşleşmeyen
+    # bir stem (örn. son eksiz bir kaynak id) OLDUĞU GİBİ döner.
+    assert strip_composite_copy_suffix("bare_source_id") == "bare_source_id"
+
+
+def test_derive_val_excluded_source_ids_from_val_stems_list():
+    val_stems = ["camo_00365_v03", "trans1_o00", "hair_0042_v00", "hair_0042_v01"]
+    excluded = derive_val_excluded_source_ids(val_stems)
+    # aynı kaynağın birden çok kopyası (hair_0042_v00/_v01) TEK bir kaynak id'e düşer.
+    assert excluded == {"camo_00365", "trans1", "hair_0042"}
+
+
+def test_derive_val_excluded_source_ids_empty_list():
+    assert derive_val_excluded_source_ids([]) == set()
+
+
+def test_merge_composite_manifest_appends_only_new_ids(tmp_path):
+    local = tmp_path / "local_o00_manifest.jsonl"
+    drive = tmp_path / "drive_composites_manifest.jsonl"
+
+    # Drive'da ZATEN v1/v2'nin _v<NN> satırları var.
+    drive_rows = [
+        {"id": "a_v00", "image": "im/a_v00.jpg", "category": "transparent", "gt_alpha": "gt/a_v00.png"},
+    ]
+    drive.write_text("\n".join(json.dumps(r) for r in drive_rows) + "\n")
+
+    # Yerelde yalnız yeni _o00 satırları var.
+    local_rows = [
+        {"id": "a_o00", "image": "im/a_o00.jpg", "category": "transparent", "gt_alpha": "gt/a_o00.png"},
+        {"id": "b_o00", "image": "im/b_o00.jpg", "category": "hair", "gt_alpha": "gt/b_o00.png"},
+    ]
+    local.write_text("\n".join(json.dumps(r) for r in local_rows) + "\n")
+
+    n_added = merge_composite_manifest(local, drive)
+    assert n_added == 2
+
+    merged_ids = [json.loads(line)["id"] for line in drive.read_text().splitlines() if line.strip()]
+    assert merged_ids == ["a_v00", "a_o00", "b_o00"]  # eski satırlar KORUNDU, yeni satırlar EKLENDİ
+
+
+def test_merge_composite_manifest_idempotent_second_call_adds_nothing(tmp_path):
+    local = tmp_path / "local_o00_manifest.jsonl"
+    drive = tmp_path / "drive_composites_manifest.jsonl"
+    local_rows = [{"id": "a_o00", "image": "im/a_o00.jpg", "category": "transparent", "gt_alpha": "gt/a_o00.png"}]
+    local.write_text("\n".join(json.dumps(r) for r in local_rows) + "\n")
+
+    n1 = merge_composite_manifest(local, drive)
+    n2 = merge_composite_manifest(local, drive)
+    assert n1 == 1
+    assert n2 == 0
+    merged_ids = [json.loads(line)["id"] for line in drive.read_text().splitlines() if line.strip()]
+    assert merged_ids == ["a_o00"]  # tekrar yok
+
+
+def test_merge_composite_manifest_missing_local_returns_zero(tmp_path):
+    local = tmp_path / "does_not_exist.jsonl"
+    drive = tmp_path / "drive_composites_manifest.jsonl"
+    assert merge_composite_manifest(local, drive) == 0
+    assert not drive.exists()
+
+
+# ============================================================================
+# 7b) _o00 uçtan uca simülasyon: küçük bir fixture üzerinde make_composites.run()
+#     -> exclude_source_ids (val_stems.json'dan türetilen) -> merge_composite_
+#     manifest ile Drive manifestine merge -- v3_veri_guncelleme_hucresi.py'nin
+#     composites_o + drive_copy aşamalarının hermetik simülasyonu.
+# ============================================================================
+def test_o00_end_to_end_simulation_with_val_exclusion_and_drive_merge(tmp_path):
+    import sys
+
+    scripts_dir = str(Path(__file__).resolve().parent.parent / "scripts")
+    if scripts_dir not in sys.path:
+        sys.path.insert(0, scripts_dir)
+    import make_composites as mc
+    from benchmark.testset import append_entries
+    from PIL import Image
+
+    src_dir = tmp_path / "src"
+    bg_dir = tmp_path / "backgrounds"
+    src_dir.mkdir()
+    bg_dir.mkdir()
+    Image.new("RGB", (20, 20), (255, 0, 255)).save(bg_dir / "bg0.jpg")
+
+    source_manifest = tmp_path / "train_manifest.jsonl"
+    rows = []
+    for name, category in (("a", "transparent"), ("b", "hair"), ("c", "transparent")):
+        Image.new("RGB", (16, 16), (0, 200, 0)).save(src_dir / f"{name}.jpg")
+        Image.new("L", (16, 16), 255).save(src_dir / f"{name}_gt.png")
+        rows.append({
+            "id": name, "image": str(src_dir / f"{name}.jpg"), "category": category,
+            "gt_alpha": str(src_dir / f"{name}_gt.png"),
+        })
+    append_entries(str(source_manifest), rows)
+
+    # val_stems.json: kaynak "a"nın BİR _v kopyası VAL'e düşmüş -- "a" tamamen
+    # hariç tutulmalı (make_composites hâlâ _v'ler için "a"yı işler, ama _o00
+    # üretiminden dışlanır).
+    val_stems = ["a_v03"]
+    excluded = derive_val_excluded_source_ids(val_stems)
+    assert excluded == {"a"}
+
+    out_dir = tmp_path / "composites_o"
+    counts = mc.run(
+        source_manifest, bg_dir, per_image=1, seed=42, out_dir=out_dir,
+        exclude_source_ids=excluded, only_original_bg=True,
+    )
+    # yalnız b ve c için _o00 üretildi (a hariç tutuldu); toplam = eligible x ORIGINAL_BG_COPIES.
+    assert sum(counts.values()) == 2 * mc.ORIGINAL_BG_COPIES
+    from benchmark.testset import load_manifest
+    o00_ids = {r["id"] for r in load_manifest(str(out_dir / "manifest.jsonl"))}
+    assert o00_ids == {"b_o00", "c_o00"}
+
+    # Drive tarafı: v1/v2'nin _v<NN> satırlarını zaten içeren bir manifest'e merge.
+    drive_manifest = tmp_path / "drive_train_composites_manifest.jsonl"
+    drive_manifest.write_text(json.dumps(
+        {"id": "a_v00", "image": "im/a_v00.jpg", "category": "transparent", "gt_alpha": "gt/a_v00.png"}
+    ) + "\n")
+    n_added = merge_composite_manifest(out_dir / "manifest.jsonl", drive_manifest)
+    assert n_added == 2  # yalnız yeni _o00 satırları eklendi
+
+    final_ids = [json.loads(line)["id"] for line in drive_manifest.read_text().splitlines() if line.strip()]
+    assert set(final_ids) == {"a_v00", "b_o00", "c_o00"}
+
+    # idempotentlik: aynı merge tekrar çağrılırsa 0 satır eklenir.
+    assert merge_composite_manifest(out_dir / "manifest.jsonl", drive_manifest) == 0
