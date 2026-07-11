@@ -62,24 +62,26 @@ def test_multiplier_values():
 
 def test_run_counts_follow_category_multipliers(env):
     counts = mc.run(env["manifest"], env["backgrounds"], per_image=1, seed=42, out_dir=env["out"])
-    assert counts["camouflage"] == 2
-    assert counts["transparent"] == 10
-    assert counts["hair"] == 1
+    assert counts["camouflage"] == 2  # NO_COMPOSE_CATEGORIES -> _o00 yok
+    assert counts["transparent"] == 10 + 1  # _v x10 + v3 _o00 x1
+    assert counts["hair"] == 1 + 1  # _v x1 + v3 _o00 x1
     assert "product" not in counts  # gt_alpha=None -> compositing'e dahil edilmez
 
 
 def test_run_per_image_multiplies_category_factor(env):
     counts = mc.run(env["manifest"], env["backgrounds"], per_image=3, seed=42, out_dir=env["out"])
     assert counts["camouflage"] == 6
-    assert counts["transparent"] == 30
-    assert counts["hair"] == 3
+    # ORIGINAL_BG_COPIES (_o00) per_image ile ÖLÇEKLENMEZ -- sabit +1.
+    assert counts["transparent"] == 30 + 1
+    assert counts["hair"] == 3 + 1
 
 
 def test_run_writes_valid_manifest(env):
     mc.run(env["manifest"], env["backgrounds"], per_image=1, seed=42, out_dir=env["out"])
     out_manifest = env["out"] / "manifest.jsonl"
     loaded = load_manifest(str(out_manifest))
-    assert len(loaded) == 2 + 10 + 1  # camouflage + transparent + hair
+    # camouflage(2) + transparent(10 _v + 1 _o00) + hair(1 _v + 1 _o00)
+    assert len(loaded) == 2 + 11 + 2
     for row in loaded:
         assert Path(row["image"]).exists()
         assert Path(row["gt_alpha"]).exists()
@@ -182,3 +184,115 @@ def test_partial_then_resume_matches_full_run(env):
 def test_run_limit_caps_source_rows(env):
     counts = mc.run(env["manifest"], env["backgrounds"], per_image=1, seed=42, out_dir=env["out"], limit=1)
     assert sum(counts.values()) < 2 + 4 + 1
+
+
+# ============================================================================
+# v3 — orijinal arka plan kopyaları (_o<NN>)
+# ============================================================================
+def test_run_generates_o00_for_non_camouflage_categories(env):
+    """camouflage HARİÇ her kategori (transparent, hair) için 1 adet ekstra
+    `_o00` kopyası üretilmeli; camouflage zaten compose'suz olduğundan _o00
+    üretilmemeli (redundant)."""
+    mc.run(env["manifest"], env["backgrounds"], per_image=1, seed=42, out_dir=env["out"])
+    loaded = load_manifest(str(env["out"] / "manifest.jsonl"))
+    ids = {r["id"] for r in loaded}
+    assert "trans1_o00" in ids
+    assert "hair1_o00" in ids
+    assert "cam1_o00" not in ids  # NO_COMPOSE_CATEGORIES -> _o00 YOK
+
+
+def test_run_o00_keeps_original_background_no_compose_contamination(env):
+    """_o00 kopyası camouflage'ın yolunu izler: compose YOK, yalnız augment —
+    magenta arka plan havuzundan sızıntı olmamalı."""
+    mc.run(env["manifest"], env["backgrounds"], per_image=1, seed=42, out_dir=env["out"])
+    loaded = {r["id"]: r for r in load_manifest(str(env["out"] / "manifest.jsonl"))}
+    row = loaded["trans1_o00"]
+    rgb = np.asarray(Image.open(row["image"]).convert("RGB"), dtype=np.float32)
+    assert rgb[..., 0].mean() + rgb[..., 2].mean() < 150
+
+
+def test_run_o00_respects_exclude_source_ids(env):
+    """`exclude_source_ids`'teki kaynak id'ler için _o00 üretilmemeli (VAL sızıntı
+    koruması) — _v<NN> kopyaları ETKİLENMEMELİ."""
+    counts = mc.run(
+        env["manifest"], env["backgrounds"], per_image=1, seed=42, out_dir=env["out"],
+        exclude_source_ids={"trans1"},
+    )
+    loaded = load_manifest(str(env["out"] / "manifest.jsonl"))
+    ids = {r["id"] for r in loaded}
+    assert "trans1_o00" not in ids
+    assert "hair1_o00" in ids  # hariç tutulmayan diğer kaynak etkilenmedi
+    assert counts["transparent"] == 10  # yalnız _v<NN>'ler (10 tane), _o00 yok
+
+
+def test_run_only_original_bg_skips_all_v_copies(env):
+    """`only_original_bg=True`: _v<NN> kopyaları TAMAMEN atlanır, yalnız _o00 seti
+    üretilir (taze bir VM'de tüm kompozit setini yeniden üretmeden hızlı devam)."""
+    counts = mc.run(
+        env["manifest"], env["backgrounds"], per_image=1, seed=42, out_dir=env["out"],
+        only_original_bg=True,
+    )
+    loaded = load_manifest(str(env["out"] / "manifest.jsonl"))
+    ids = {r["id"] for r in loaded}
+    assert ids == {"trans1_o00", "hair1_o00"}  # camouflage hariç, _v<NN> hiç yok
+    assert counts == {"transparent": 1, "hair": 1}
+
+
+def test_run_only_original_bg_with_exclusion_produces_nothing_for_excluded(env):
+    counts = mc.run(
+        env["manifest"], env["backgrounds"], per_image=1, seed=42, out_dir=env["out"],
+        only_original_bg=True, exclude_source_ids={"trans1", "hair1"},
+    )
+    assert counts == {}
+    # hiç yeni girdi yazılmadığından manifest dosyası hiç oluşturulmaz (append_entries
+    # yalnız new_entries doluysa çağrılır) -- boş bir manifest.jsonl DEĞİL, yok.
+    assert not (env["out"] / "manifest.jsonl").exists()
+
+
+def test_run_o00_naming_never_collides_with_v_copies(env):
+    """`_o00` isim alanı `_v<NN>` ile ASLA çakışmaz (ayrı bir son ek) — normal (v3
+    öncesi gibi) bir koşuda üretilen tüm id'ler arasında hem _v hem _o kopyaları
+    bağımsız var olabilir, hiçbiri diğerinin üzerine yazmaz."""
+    mc.run(env["manifest"], env["backgrounds"], per_image=1, seed=42, out_dir=env["out"])
+    loaded = load_manifest(str(env["out"] / "manifest.jsonl"))
+    ids = [r["id"] for r in loaded]
+    assert len(ids) == len(set(ids))  # tekrar yok
+    trans_v = [i for i in ids if i.startswith("trans1_v")]
+    trans_o = [i for i in ids if i.startswith("trans1_o")]
+    assert len(trans_v) == 10
+    assert trans_o == ["trans1_o00"]
+
+
+def test_run_o00_deterministic_same_seed(env):
+    counts1 = mc.run(
+        env["manifest"], env["backgrounds"], per_image=1, seed=42, out_dir=env["out"] / "a",
+        only_original_bg=True,
+    )
+    counts2 = mc.run(
+        env["manifest"], env["backgrounds"], per_image=1, seed=42, out_dir=env["out"] / "b",
+        only_original_bg=True,
+    )
+    assert counts1 == counts2
+    rows1 = {r["id"]: r for r in load_manifest(str(env["out"] / "a" / "manifest.jsonl"))}
+    rows2 = {r["id"]: r for r in load_manifest(str(env["out"] / "b" / "manifest.jsonl"))}
+    assert rows1.keys() == rows2.keys()
+    for rid in rows1:
+        img1 = np.asarray(Image.open(rows1[rid]["image"]))
+        img2 = np.asarray(Image.open(rows2[rid]["image"]))
+        assert np.array_equal(img1, img2), f"{rid}: aynı seed farklı _o00 çıktısı üretti"
+
+
+def test_run_idempotent_rerun_adds_only_missing_o00(env):
+    """Var olan bir _v<NN> koşusu üzerine, sonradan _o00 eklemek için tekrar
+    koşulduğunda YALNIZ eksik _o00'lar üretilir — mevcut _v<NN> çıktıları
+    değişmeden kalır (bkz. modül docstring'i idempotentlik notu)."""
+    mc.run(env["manifest"], env["backgrounds"], per_image=1, seed=42, out_dir=env["out"])
+    before = {r["id"]: Path(r["image"]).read_bytes() for r in load_manifest(str(env["out"] / "manifest.jsonl"))}
+
+    counts2 = mc.run(env["manifest"], env["backgrounds"], per_image=1, seed=42, out_dir=env["out"])
+    assert counts2 == {}  # her şey zaten vardı, yeni üretim yok
+
+    after = load_manifest(str(env["out"] / "manifest.jsonl"))
+    assert len(after) == len(before)
+    for row in after:
+        assert Path(row["image"]).read_bytes() == before[row["id"]]

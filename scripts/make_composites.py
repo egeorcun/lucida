@@ -10,6 +10,23 @@ Kategori bazlı per-image çarpanları (bkz. Faz 2 planı Task 4):
 - diğer tüm kategoriler (hair/complex/thin/general/product/illustration): ×`per-image`×1,
   compose + augment.
 
+v3 (bkz. `.superpowers/sdd/v3-hazirlik-report.md`): gerçek-fotoğraf benchmark'ında
+over-deletion'ın kalıcı olma nedeni, kamuflaj DIŞINDAKİ tüm kategorilerin yalnız
+SENTETİK kompozit arka planlarda eğitilmesiydi (orijinal arka plan hiç görülmüyordu —
+domain gap). Bunu düzeltmek için `NO_COMPOSE_CATEGORIES` dışındaki her kategoriye
+ORİJİNAL arka planı koruyan (compose YOK, yalnız augment — camouflage'ın yolu ile
+BİREBİR aynı mekanizma) `ORIGINAL_BG_COPIES` (varsayılan 1) ek kopya eklenir; bu
+kopyalar `_v<NN>` yerine `_o<NN>` son ekiyle adlandırılır (mevcut `_v` çıktılarıyla
+ASLA çakışmaz — ayrı bir isim alanı, idempotent yeniden koşularda yalnız eksik
+`_o00`'lar üretilir). `run()`'un `exclude_source_ids` parametresi, VAL bölünmesinde
+zaten kullanılan (dolayısıyla eğitime SIZMAMASI gereken) kaynak satır id'lerini
+`_o00` üretiminden hariç tutar (VAL sızıntı koruması — bkz. `training/
+v3_veri_guncelleme_hucresi.py`, Drive'daki `val_stems.json`'dan türetilir).
+`only_original_bg=True` ise TÜM `_v<NN>` kopyaları (fiziksel compose çarpanları)
+tamamen atlanır, yalnız `_o00` seti üretilir — taze bir Colab VM'inde 28k'lik tüm
+kompozit setini yeniden üretmeden yalnız yeni ~14k `_o00` dosyasını hızlıca elde
+etmek için (bkz. aynı dosya, "composites_o" aşaması).
+
 Kullanım:
     uv run python scripts/make_composites.py --manifest data/train/manifest.jsonl \
         --backgrounds data/backgrounds --per-image 1 --seed 42 --out data/train_composites/
@@ -19,7 +36,9 @@ Determinizm: her (kaynak satır id, kopya indeksi) çifti için `np.random.SeedS
 ile BAĞIMSIZ bir alt-akış türetilir (global sıralı bir rng yerine) — böylece hem
 "aynı seed -> aynı çıktı" hem de kesintiye uğramış/kısmi bir koşunun (zaten üretilmiş
 id'ler atlanarak) güvenle sürdürülmesi aynı anda sağlanır: atlanan öğeler, henüz
-üretilmemiş öğelerin rastgele akışını etkilemez.
+üretilmemiş öğelerin rastgele akışını etkilemez. `_o<NN>` id'leri de aynı `_item_rng`
+mekanizmasını kullanır (id string'i zaten `_v<NN>`'den farklı olduğundan bağımsız
+bir alt-akış alırlar).
 """
 import argparse
 import hashlib
@@ -34,6 +53,10 @@ from bgr.compositing import augment, compose
 CATEGORY_MULTIPLIER: dict[str, int] = {"transparent": 10, "camouflage": 2}
 DEFAULT_MULTIPLIER = 1
 NO_COMPOSE_CATEGORIES = {"camouflage"}
+ORIGINAL_BG_COPIES = 1
+"""`NO_COMPOSE_CATEGORIES` DIŞINDAKİ her kategoriye eklenen, orijinal arka planı
+koruyan (compose yok, yalnız augment) ekstra kopya sayısı — `_o<NN>` son ekiyle
+(bkz. modül docstring'i "v3" notu)."""
 IMG_EXTS = {".jpg", ".jpeg", ".png", ".webp"}
 
 
@@ -80,8 +103,18 @@ def run(
     seed: int,
     out_dir: Path,
     limit: int | None = None,
+    exclude_source_ids: set[str] | None = None,
+    only_original_bg: bool = False,
 ) -> dict[str, int]:
+    """`exclude_source_ids`: bu kümedeki KAYNAK satır id'leri (kompozit `_v`/`_o`
+    son eki EKLENMEDEN önceki `row['id']`) için `_o<NN>` (orijinal arka plan)
+    kopyası ÜRETİLMEZ — VAL sızıntı koruması (bkz. modül docstring'i). `_v<NN>`
+    kopyalarını ETKİLEMEZ (yalnız `_o<NN>` üretimini kısıtlar).
+
+    `only_original_bg=True`: `_v<NN>` (fiziksel compose çarpanlı) kopyaların TAMAMI
+    atlanır, yalnız `_o<NN>` seti üretilir (bkz. modül docstring'i "v3" notu)."""
     manifest_path, backgrounds_dir, out_dir = Path(manifest_path), Path(backgrounds_dir), Path(out_dir)
+    exclude_source_ids = exclude_source_ids or set()
     out_img_dir = out_dir / "images"
     out_gt_dir = out_dir / "gt"
     out_manifest = out_dir / "manifest.jsonl"
@@ -106,8 +139,17 @@ def run(
     skipped = 0
     for row in rows:
         category = row["category"]
-        n_copies = per_image * multiplier(category)
-        out_ids = [f"{row['id']}_v{ci:02d}" for ci in range(n_copies)]
+        n_v_copies = 0 if only_original_bg else per_image * multiplier(category)
+        v_ids = [f"{row['id']}_v{ci:02d}" for ci in range(n_v_copies)]
+
+        o_ids: list[str] = []
+        if category not in NO_COMPOSE_CATEGORIES and row["id"] not in exclude_source_ids:
+            o_ids = [f"{row['id']}_o{ci:02d}" for ci in range(ORIGINAL_BG_COPIES)]
+        o_ids_set = set(o_ids)
+
+        out_ids = v_ids + o_ids
+        if not out_ids:
+            continue
         if all(oid in existing_ids for oid in out_ids):
             skipped += len(out_ids)
             continue
@@ -121,7 +163,7 @@ def run(
                 continue
             rng = _item_rng(seed, out_id)
 
-            if category in NO_COMPOSE_CATEGORIES:
+            if category in NO_COMPOSE_CATEGORIES or out_id in o_ids_set:
                 out_rgb, out_alpha = fg_rgb, alpha
             else:
                 bg_idx = int(rng.integers(0, len(bg_paths)))
@@ -155,8 +197,32 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--out", default="data/train_composites")
     parser.add_argument("--limit", type=int, default=None, help="yalnız ilk N kaynak satırı (duman koşusu)")
+    parser.add_argument(
+        "--exclude-ids-file",
+        default=None,
+        help="her satırda bir kaynak id (VAL sızıntı koruması) — bu id'ler için _o<NN> üretilmez",
+    )
+    parser.add_argument(
+        "--only-original-bg",
+        action="store_true",
+        help="_v<NN> (compose'lu) kopyaları tamamen atla, yalnız _o<NN> (orijinal arka plan) seti üret",
+    )
     args = parser.parse_args()
-    run(args.manifest, args.backgrounds, args.per_image, args.seed, args.out, limit=args.limit)
+    exclude_source_ids = None
+    if args.exclude_ids_file:
+        exclude_source_ids = {
+            line.strip() for line in Path(args.exclude_ids_file).read_text().splitlines() if line.strip()
+        }
+    run(
+        args.manifest,
+        args.backgrounds,
+        args.per_image,
+        args.seed,
+        args.out,
+        limit=args.limit,
+        exclude_source_ids=exclude_source_ids,
+        only_original_bg=args.only_original_bg,
+    )
 
 
 if __name__ == "__main__":
