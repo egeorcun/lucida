@@ -480,11 +480,24 @@ def _fx_color(rng: np.random.Generator) -> np.ndarray:
     return np.clip(base + rng.uniform(-0.08, 0.08, 3).astype(np.float32), 0.0, 1.0)
 
 
-def _add_spot(acc: np.ndarray, rng: np.random.Generator) -> None:
-    """acc (H, W float) üzerine gaussian parıltı veya 4 kollu yıldız ekler (max)."""
+def _add_spot(
+    acc: np.ndarray,
+    rng: np.random.Generator,
+    region: tuple[float, float, float, float] | None = None,
+) -> None:
+    """acc (H, W float) üzerine gaussian parıltı veya 4 kollu yıldız ekler (max).
+
+    `region` (x0, y0, x1, y1) verilirse parıltı o dikdörtgen içine yerleşir —
+    v5: parıltılar nesnenin genişletilmiş bbox'una yoğunlaştırılır ("obje
+    etrafında vfx" senaryosu; arka planın uzak köşesindeki serbest noktalar
+    hayaletleşme sinyalini besliyordu)."""
     h, w = acc.shape
     sigma = max(0.6, min(h, w) * float(rng.uniform(0.004, 0.02)))
-    cx, cy = float(rng.uniform(0, w)), float(rng.uniform(0, h))
+    if region is not None:
+        rx0, ry0, rx1, ry1 = region
+        cx, cy = float(rng.uniform(rx0, rx1)), float(rng.uniform(ry0, ry1))
+    else:
+        cx, cy = float(rng.uniform(0, w)), float(rng.uniform(0, h))
     peak = float(rng.uniform(0.3, FX_ALPHA_MAX))  # yarı saydam ara değerler
     star = rng.uniform() < 0.5
     r = int(6 * sigma) + 1
@@ -504,15 +517,27 @@ def _add_spot(acc: np.ndarray, rng: np.random.Generator) -> None:
     np.maximum(acc[y0:y1, x0:x1], peak * k, out=acc[y0:y1, x0:x1])
 
 
-def _streaks(rng: np.random.Generator, h: int, w: int) -> np.ndarray:
+def _streaks(
+    rng: np.random.Generator,
+    h: int,
+    w: int,
+    region: tuple[float, float, float, float] | None = None,
+) -> np.ndarray:
     """Lens-flare-vari ince, blur'lu ışık çizgileri (H, W float [0,1])."""
     layer = Image.new("L", (w, h), 0)
     d = ImageDraw.Draw(layer)
     diag = math.hypot(w, h)
-    for _ in range(int(rng.integers(1, 4))):
-        cx, cy = float(rng.uniform(0, w)), float(rng.uniform(0, h))
+    # v5 DÜZELTMESİ (2026-07-13): v4'te çizgiler diyagonalin %20-70'i kadardı —
+    # tüm görüntüyü kesen düşük-alpha çizgiler hayaletleşmeyi besledi. Artık
+    # kısa (%5-18), daha az sayıda ve nesne bölgesine yoğun.
+    for _ in range(int(rng.integers(1, 3))):
+        if region is not None:
+            rx0, ry0, rx1, ry1 = region
+            cx, cy = float(rng.uniform(rx0, rx1)), float(rng.uniform(ry0, ry1))
+        else:
+            cx, cy = float(rng.uniform(0, w)), float(rng.uniform(0, h))
         ang = float(rng.uniform(0, math.pi))
-        half = diag * float(rng.uniform(0.2, 0.7)) / 2
+        half = diag * float(rng.uniform(0.05, 0.18)) / 2
         dx, dy = math.cos(ang) * half, math.sin(ang) * half
         val = int(255 * float(rng.uniform(0.15, 0.5)))
         d.line([(cx - dx, cy - dy), (cx + dx, cy + dy)], fill=val, width=int(rng.integers(1, 3)))
@@ -534,23 +559,38 @@ def _render_fx_sample(
     elements: list[tuple[np.ndarray, np.ndarray]] = []  # (alpha haritası, renk)
 
     # 1) glow halkası — HER örnekte (ara-alpha garantisinin fx ayağı): nesne
-    # alpha'sının dışa doğru MaxFilter+GaussianBlur kopyası, 0.15-0.5 çarpanlı.
+    # alpha'sının dışa doğru MaxFilter+GaussianBlur kopyası. v5 DÜZELTMESİ
+    # (2026-07-13): v4'te yarıçap görüntünün %2-8'iydi (1200px'te 96px'lik dev
+    # hale) — model "geniş yumuşak-alpha tabakaları normaldir" dersini çıkarıp
+    # katı nesneleri HAYALETLEŞTİRMEYE başladı (benchmark: complex ara-alpha
+    # %4.5->%5.9, pinpon masası %35). Halo artık nesne SINIRINDA dar bir bant:
+    # mutlak pikselle sınırlı yarıçap + daha düşük tepe alpha.
     pil_a = Image.fromarray((fg_alpha * 255).astype(np.uint8), mode="L")
-    ksz = 3 + 2 * int(rng.integers(0, 3))  # 3 / 5 / 7
-    radius = max(1.5, min(h, w) * float(rng.uniform(0.02, 0.08)))
+    ksz = 3 + 2 * int(rng.integers(0, 2))  # 3 / 5
+    radius = min(10.0, max(1.5, min(h, w) * float(rng.uniform(0.004, 0.012))))
     halo = pil_a.filter(ImageFilter.MaxFilter(ksz)).filter(ImageFilter.GaussianBlur(radius))
-    halo_a = (np.asarray(halo, dtype=np.float32) / 255.0) * float(rng.uniform(0.15, 0.5))
+    # yalnız nesne DIŞINA taşan kısım hale sayılır; iç bölge zaten alpha=1
+    halo_a = (np.asarray(halo, dtype=np.float32) / 255.0) * float(rng.uniform(0.15, 0.35))
     elements.append((halo_a, _fx_color(rng)))
 
-    # 2) parçacık parıltıları (gaussian çekirdek / 4 kollu yıldız)
+    # 2) parçacık parıltıları (gaussian çekirdek / 4 kollu yıldız) — v5:
+    # nesnenin %40 genişletilmiş bbox'una yoğunlaştırılır.
+    ys, xs = np.nonzero(fg_alpha > 0.1)
+    if len(xs):
+        bx0, bx1, by0, by1 = xs.min(), xs.max(), ys.min(), ys.max()
+        mx, my = 0.4 * (bx1 - bx0 + 1), 0.4 * (by1 - by0 + 1)
+        region = (max(0.0, bx0 - mx), max(0.0, by0 - my),
+                  min(float(w), bx1 + mx), min(float(h), by1 + my))
+    else:
+        region = None
     spots = np.zeros((h, w), dtype=np.float32)
     for _ in range(int(rng.integers(5, 26))):
-        _add_spot(spots, rng)
+        _add_spot(spots, rng, region=region)
     elements.append((spots, _fx_color(rng)))
 
     # 3) ışık çizgileri
-    if rng.uniform() < 0.7:
-        elements.append((_streaks(rng, h, w), _fx_color(rng)))
+    if rng.uniform() < 0.5:
+        elements.append((_streaks(rng, h, w, region=region), _fx_color(rng)))
 
     fx_alpha = np.zeros((h, w), dtype=np.float32)
     fx_energy = np.zeros((h, w, 3), dtype=np.float32)

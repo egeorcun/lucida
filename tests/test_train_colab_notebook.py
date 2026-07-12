@@ -70,3 +70,25 @@ def test_notebook_documents_key_mechanism_choices():
     assert "from_pretrained" in all_text
     assert "find_latest_checkpoint" in all_text
     assert "BiRefNet_HR-matting" in all_text
+
+
+def test_data_copy_cell_has_tar_fast_path_with_copy_pairs_fallback():
+    """Veri kopyalama hücresi (c): tar manifest'i VARSA shard indirme+açma yolu
+    (boyut doğrulamalı kopya, extractall(filter="data"), manifest doğrulaması,
+    VAL taşınması), YOKSA eski copy_pairs yolu (geriye dönük uyumluluk) —
+    bkz. training/veri_tar_paketleme_hucresi.py."""
+    nb = _load_notebook()
+    cells = [c for c in nb.cells if c.cell_type == "code" and "tcl.copy_pairs(train_stems" in c.source]
+    assert len(cells) == 1, "veri kopyalama hücresi (copy_pairs fallback'li) bulunamadı"
+    src = cells[0].source
+    # tar hızlı yolu
+    assert "_manifest.json" in src
+    assert "tcl.validate_tar_manifest" in src
+    assert 'extractall' in src and 'filter="data"' in src
+    # kalıcı VAL bölünmesi + Errno 5 koruması bozulmadı
+    assert "tcl.load_or_create_val_split" in src
+    assert "_iterdir_retry" in src
+    # tar yolunda val stem'leri TRAIN'den val_holdout'a TAŞINIR (replace) ve
+    # tar sonrası yeni çiftler (delta) yine TRAIN'e copy_pairs ile gider.
+    assert ".replace(" in src
+    assert "delta_train" in src and "delta_val" in src

@@ -29,6 +29,13 @@ Altı bağımsız endişe kapsar:
    tutması, Drive'daki kompozit manifest'i (üzerine yazmadan) güncellemesi ve
    boş bir manifest'le export'a geçmeyi erken/yüksek sesle engellemesi için
    (bkz. o dosyanın modül docstring'i).
+8. TRAIN verisinin Drive'da tar shard'larına paketlenmesi/tüketilmesi
+   (`tar_shard_name` / `split_stems_to_shards` / `validate_tar_manifest`) —
+   `training/veri_tar_paketleme_hucresi.py` (paketleyen, ücretsiz CPU Colab
+   hücresi) ile `train_colab.ipynb` hücre (c)'nin (indirip açan taraf) ORTAK
+   sözleşmesi: 52k+ küçük dosyayı Drive FUSE'dan tek tek kopyalamak (~75 dk,
+   ara sıra geçici 'Errno 5') yerine ~8 büyük tar shard'ı kopyalanıp lokalde
+   açılır (~10 dk).
 """
 from __future__ import annotations
 
@@ -167,11 +174,36 @@ v4_veri_guncelleme_hucresi.py` üretir (`scripts/make_textfx.py` + ToonOut).
    pay, modelin bu üç beceriyi sıfırdan öğrenmesine yetecek epoch-içi
    görünürlük sağlar."""
 
+SAMPLER_PRESET_V5: dict[str, float] = {
+    "camouflage": 0.12,
+    "transparent": 0.22,
+    "hair": 0.12,
+    "complex": 0.19,
+    "thin": 0.12,
+    "general": 0.04,
+    "text": 0.07,
+    "fx": 0.05,
+    "illustration": 0.07,
+}
+"""v5 rebalancing hedefi (toplam TAM %100) — v4 benchmark'ının (191 görsel)
+görsel incelemesinden sonraki ayar. v4 bulguları: text 0.0119 (Ideogram
+GEÇİLDİ) ve illustration 0.0129 hedefleri TUTTURULDU -> payları %10/%8'den
+%7/%7'ye çekilebilir (kazanım koruma modu). Ancak iki kategori pay düşüşünün
+bedelini ödedi: transparent 0.0386->0.0405 (Ideogram 0.0343 hedefi kaçtı) ve
+hair 0.0067->0.0106 -> transparent %18->%22, hair %8->%12 GERİ YÜKSELTİLDİ.
+fx %8->%5: v4'te fx verisi hayaletleşmeye (katı nesnelerde ara-alpha; complex
+ara-alpha oranı %4.5->%5.9) katkı verdi — `make_textfx._render_fx_sample`ın
+v5 düzeltmesiyle (dar halo bandı, kısa çizgiler, bbox'a yoğun parçacıklar)
+birlikte payı da düşürüldü. complex %19 KORUNDU (InSPyReNet'in 0.0110'u
+kategori tavanının yüksekliğini gösterdi; bizim gerçekçi epoch-5 hedefi
+~0.045-0.055). camo %12 (marj devasa), general %4 değişmedi."""
+
 SAMPLER_PRESETS: dict[str, dict[str, float]] = {
     "v1": SAMPLER_PRESET_V1,
     "v2": SAMPLER_PRESET_V2,
     "v3": SAMPLER_PRESET_V3,
     "v4": SAMPLER_PRESET_V4,
+    "v5": SAMPLER_PRESET_V5,
 }
 """Notebook `SAMPLER_PRESET` parametresinin ("v1"/"v2"/"v3"/"v4") çözümlendiği
 tablo — bkz. `training/train_colab.ipynb` parametre hücresi ve hücre (e)."""
@@ -692,3 +724,79 @@ def ensure_manifest_pairs(manifest_path: str | Path, min_pairs: int = 1) -> int:
             f"(boş manifest'le devam etmek aşağıda anlaşılmaz hatalara yol açar)."
         )
     return n
+
+
+# ============================================================================
+# 8) TRAIN verisinin tar shard'larına paketlenmesi (Drive FUSE hızlandırması)
+#    Paketleyen taraf: training/veri_tar_paketleme_hucresi.py (ücretsiz CPU
+#    Colab, paste-run). Tüketen taraf: training/train_colab.ipynb hücre (c)
+#    (`tcl.validate_tar_manifest` ile manifest'i doğrulayıp shard'ları indirir/
+#    açar). Aşağıdaki üç fonksiyon paketleme hücresine BİREBİR KOPYALANIR —
+#    o hücre paste-run tasarımı gereği repo klonu GEREKTİRMEZ; tek doğruluk
+#    kaynağı BURASIDIR, kopya ile buradaki kaynak arasındaki drift
+#    tests/test_train_colab_lib.py'deki AST karşılaştırma testiyle yakalanır.
+# ============================================================================
+def tar_shard_name(index: int) -> str:
+    """`index` (0 tabanlı) için shard tar dosya adı: `TRAIN_shard_{index:02d}.tar`.
+    Adlandırma sözleşmesinin TEK kaynağı — paketleyen hücre bu adla yazar,
+    notebook tarafı manifest'teki `name` alanları üzerinden okur."""
+    if index < 0:
+        raise ValueError(f"index >= 0 olmalı: {index}")
+    return f"TRAIN_shard_{index:02d}.tar"
+
+
+def split_stems_to_shards(stems: list[str], shard_size: int) -> list[list[str]]:
+    """`stems`'i SIRALI ve DETERMİNİSTİK shard'lara böler: önce `sorted()`,
+    sonra ardışık `shard_size`'lık dilimler — sonuç girdi (dosya sistemi
+    listeleme) sırasından BAĞIMSIZ, yeniden koşularda AYNIDIR (idempotent
+    shard atlama ancak böyle mümkün: aynı stem kümesi her koşuda aynı shard'a
+    düşer). Toplam KORUNUR: dilimlerin ardışık birleşimi `sorted(stems)`'in
+    kendisidir (kayıp/tekrar yok); son dilim `shard_size`'dan kısa olabilir.
+    Boş liste -> boş liste. `shard_size <= 0` -> ValueError."""
+    if shard_size <= 0:
+        raise ValueError(f"shard_size > 0 olmalı: {shard_size}")
+    stems_sorted = sorted(stems)
+    return [stems_sorted[i : i + shard_size] for i in range(0, len(stems_sorted), shard_size)]
+
+
+def validate_tar_manifest(manifest: dict, expected_total: int | None = None) -> int:
+    """Tar manifest'inin (`bg-remover-data/tar/_manifest.json`) iç tutarlılığını
+    doğrular ve `total_pairs`'ı döndürür; her tutarsızlıkta NET bir RuntimeError
+    fırlatır (sessizce devam etmek = eksik/bozuk veriyle eğitime girme riski):
+    - `shards` boş olmayan bir liste, `total_pairs` pozitif bir tamsayı olmalı;
+    - her shard girdisinde `name`/`pairs`/`bytes` bulunmalı ve `pairs`/`bytes` > 0;
+    - shard adları benzersiz olmalı (aynı tar iki kez sayılmasın);
+    - shard `pairs` toplamı `total_pairs`'a eşit olmalı;
+    - `expected_total` verilmişse `total_pairs` ona da eşit olmalı (paketleyen
+      hücre kaynak TRAIN listeleme uzunluğunu geçirir — Drive listelemesiyle
+      manifest'in aynı veri setini anlattığı garanti edilir)."""
+    shards = manifest.get("shards")
+    total = manifest.get("total_pairs")
+    if not isinstance(shards, list) or not shards:
+        raise RuntimeError(
+            f"tar manifest'inde boş olmayan bir 'shards' listesi yok (paketleme hücresi "
+            f"hiç koşmamış ya da yarım kalmış olabilir): {shards!r}"
+        )
+    if not isinstance(total, int) or total <= 0:
+        raise RuntimeError(f"tar manifest'inde pozitif bir 'total_pairs' alanı yok: {total!r}")
+    names: list[str] = []
+    total_from_shards = 0
+    for entry in shards:
+        name, pairs, n_bytes = entry.get("name"), entry.get("pairs"), entry.get("bytes")
+        if not name or not isinstance(pairs, int) or pairs <= 0 or not isinstance(n_bytes, int) or n_bytes <= 0:
+            raise RuntimeError(f"bozuk shard girdisi (name/pairs/bytes eksik ya da <= 0): {entry!r}")
+        names.append(name)
+        total_from_shards += pairs
+    if len(set(names)) != len(names):
+        raise RuntimeError(f"tar manifest'inde tekrar eden shard adları var: {names}")
+    if total_from_shards != total:
+        raise RuntimeError(
+            f"shard 'pairs' toplamı ({total_from_shards}) manifest'in 'total_pairs' değeriyle "
+            f"({total}) uyuşmuyor — manifest bozuk, paketleme hücresi yeniden koşulmalı."
+        )
+    if expected_total is not None and total != expected_total:
+        raise RuntimeError(
+            f"manifest'in 'total_pairs' değeri ({total}) beklenen kaynak çift sayısıyla "
+            f"({expected_total}) uyuşmuyor."
+        )
+    return total

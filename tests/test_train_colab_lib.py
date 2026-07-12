@@ -2,6 +2,7 @@
 madde 6: sampler/oversampling + resume-tespiti mantığının GPU/Colab olmadan
 lokal doğrulanması). Gerçek Colab/torch/Drive ortamı gerektirmez, `slow`
 değildir."""
+import ast
 import json
 from pathlib import Path
 
@@ -13,6 +14,7 @@ from training.train_colab_lib import (
     SAMPLER_PRESET_V3,
     SAMPLER_PRESET_V4,
     SAMPLER_PRESETS,
+    SAMPLER_PRESET_V5,
     apply_config_patches,
     compute_expected_shares,
     compute_sample_weights,
@@ -29,7 +31,10 @@ from training.train_colab_lib import (
     prune_old_checkpoints,
     resolve_sampler_num_samples,
     should_apply_finetune_reweight,
+    split_stems_to_shards,
     strip_composite_copy_suffix,
+    tar_shard_name,
+    validate_tar_manifest,
 )
 
 
@@ -100,11 +105,12 @@ def test_sampler_preset_v1_matches_default_target_share():
 
 
 def test_sampler_presets_registry_has_v1_v2_v3_and_v4():
-    assert set(SAMPLER_PRESETS) == {"v1", "v2", "v3", "v4"}
+    assert set(SAMPLER_PRESETS) == {"v1", "v2", "v3", "v4", "v5"}
     assert SAMPLER_PRESETS["v1"] is SAMPLER_PRESET_V1
     assert SAMPLER_PRESETS["v2"] is SAMPLER_PRESET_V2
     assert SAMPLER_PRESETS["v3"] is SAMPLER_PRESET_V3
     assert SAMPLER_PRESETS["v4"] is SAMPLER_PRESET_V4
+    assert SAMPLER_PRESETS["v5"] is SAMPLER_PRESET_V5
     # compute_sample_weights yalnız sum > 1.0'da ValueError fırlatır; tam 1.0'a İZİN VAR
     # (o durumda hedefsiz "_other" örneklere 0 ağırlık düşer — bkz. SAMPLER_PRESET_V2 docstring'i).
     for preset in SAMPLER_PRESETS.values():
@@ -848,3 +854,177 @@ def test_o00_end_to_end_simulation_with_val_exclusion_and_drive_merge(tmp_path):
 
     # idempotentlik: aynı merge tekrar çağrılırsa 0 satır eklenir.
     assert merge_composite_manifest(out_dir / "manifest.jsonl", drive_manifest) == 0
+
+
+# 1c-3) v5 sampler preset (v4 benchmark + hayaletleşme bulgusu sonrası:
+# transparent/hair geri yükseltildi, fx/text/illustration kazanım-koruma payına
+# çekildi — bkz. SAMPLER_PRESET_V5 docstring'i).
+def test_sampler_preset_v5():
+    assert abs(sum(SAMPLER_PRESET_V5.values()) - 1.0) < 1e-9
+    assert set(SAMPLER_PRESET_V5) == {
+        "camouflage", "transparent", "hair", "complex", "thin", "general",
+        "text", "fx", "illustration",
+    }
+    from training.train_colab_lib import SAMPLER_PRESET_V4 as V4
+    # yönler: transparent ve hair GERİ YÜKSELDİ, fx/text/illustration DÜŞTÜ
+    assert SAMPLER_PRESET_V5["transparent"] > V4["transparent"]
+    assert SAMPLER_PRESET_V5["hair"] > V4["hair"]
+    assert SAMPLER_PRESET_V5["fx"] < V4["fx"]
+    assert SAMPLER_PRESET_V5["text"] < V4["text"]
+    assert SAMPLER_PRESET_V5["complex"] == V4["complex"]
+
+
+# ============================================================================
+# 8) TRAIN verisinin tar shard'larına paketlenmesi — split_stems_to_shards /
+#    tar_shard_name / validate_tar_manifest (paketleyen: training/
+#    veri_tar_paketleme_hucresi.py, tüketen: train_colab.ipynb hücre (c)).
+# ============================================================================
+def test_split_stems_to_shards_is_deterministic_regardless_of_input_order():
+    # Dosya sistemi listeleme sırası koşudan koşuya değişebilir — bölme SIRALI
+    # ve DETERMİNİSTİK olmalı (idempotent shard atlama ancak böyle mümkün).
+    import random
+
+    stems = [f"s_{i:05d}" for i in range(100)]
+    shuffled = stems[:]
+    random.Random(0).shuffle(shuffled)
+    assert split_stems_to_shards(stems, 30) == split_stems_to_shards(shuffled, 30)
+    assert split_stems_to_shards(list(reversed(stems)), 30) == split_stems_to_shards(stems, 30)
+
+
+def test_split_stems_to_shards_preserves_total_and_chunk_sizes():
+    stems = [f"s_{i:05d}" for i in range(25)]
+    shards = split_stems_to_shards(stems, 7)
+    assert [len(s) for s in shards] == [7, 7, 7, 4]  # son dilim kısa olabilir
+    flat = [x for sh in shards for x in sh]
+    assert flat == sorted(stems)  # toplam KORUNUR: kayıp yok, tekrar yok, sıralı
+
+
+def test_split_stems_to_shards_empty_list_gives_no_shards():
+    assert split_stems_to_shards([], 7000) == []
+
+
+def test_split_stems_to_shards_rejects_non_positive_shard_size():
+    with pytest.raises(ValueError):
+        split_stems_to_shards(["a"], 0)
+    with pytest.raises(ValueError):
+        split_stems_to_shards(["a"], -5)
+
+
+def test_split_stems_to_shards_real_dataset_size_gives_about_eight_shards():
+    # Gerçek veri seti boyutu (52.882 çift) + paketleme hücresinin SHARD_SIZE=7000
+    # değeri -> görev hedefi ~8 shard, shard başına ~6-7k çift.
+    shards = split_stems_to_shards([f"{i:06d}" for i in range(52_882)], 7000)
+    assert len(shards) == 8
+    assert [len(s) for s in shards] == [7000] * 7 + [52_882 - 7 * 7000]
+
+
+def test_tar_shard_name_format_and_rejects_negative():
+    assert tar_shard_name(0) == "TRAIN_shard_00.tar"
+    assert tar_shard_name(7) == "TRAIN_shard_07.tar"
+    assert tar_shard_name(11) == "TRAIN_shard_11.tar"
+    with pytest.raises(ValueError):
+        tar_shard_name(-1)
+
+
+def _valid_tar_manifest() -> dict:
+    return {
+        "created_at": "2026-07-13T00:00:00+00:00",
+        "shard_size": 3,
+        "total_pairs": 5,
+        "source_counts": {"im": 5, "gt": 5},
+        "shards": [
+            {"name": "TRAIN_shard_00.tar", "pairs": 3, "files": 6, "bytes": 111},
+            {"name": "TRAIN_shard_01.tar", "pairs": 2, "files": 4, "bytes": 99},
+        ],
+    }
+
+
+def test_validate_tar_manifest_ok_returns_total():
+    manifest = _valid_tar_manifest()
+    assert validate_tar_manifest(manifest) == 5
+    assert validate_tar_manifest(manifest, expected_total=5) == 5
+
+
+def test_validate_tar_manifest_raises_on_shard_sum_mismatch():
+    manifest = _valid_tar_manifest()
+    manifest["total_pairs"] = 6  # shard toplamı 5
+    with pytest.raises(RuntimeError, match="uyuşmuyor"):
+        validate_tar_manifest(manifest)
+
+
+def test_validate_tar_manifest_raises_on_expected_total_mismatch():
+    # Paketleme hücresi kaynak TRAIN listeleme uzunluğunu geçirir — görev şartı:
+    # toplam çift sayısı TRAIN listesiyle eşleşmiyorsa RuntimeError.
+    with pytest.raises(RuntimeError, match="beklenen kaynak çift sayısı"):
+        validate_tar_manifest(_valid_tar_manifest(), expected_total=52_882)
+
+
+def test_validate_tar_manifest_raises_on_missing_or_empty_shards():
+    with pytest.raises(RuntimeError, match="shards"):
+        validate_tar_manifest({"total_pairs": 5})
+    with pytest.raises(RuntimeError, match="shards"):
+        validate_tar_manifest({"total_pairs": 5, "shards": []})
+
+
+def test_validate_tar_manifest_raises_on_bad_total_pairs():
+    manifest = _valid_tar_manifest()
+    for bad in (None, 0, -1, "5"):
+        m = dict(manifest)
+        m["total_pairs"] = bad
+        with pytest.raises(RuntimeError, match="total_pairs"):
+            validate_tar_manifest(m)
+
+
+def test_validate_tar_manifest_raises_on_broken_shard_entry():
+    for broken in (
+        {"name": "TRAIN_shard_00.tar", "pairs": 0, "bytes": 111},   # pairs <= 0
+        {"name": "TRAIN_shard_00.tar", "pairs": 5, "bytes": 0},     # bytes <= 0
+        {"pairs": 5, "bytes": 111},                                  # name yok
+        {"name": "TRAIN_shard_00.tar", "bytes": 111},                # pairs yok
+    ):
+        manifest = {"total_pairs": 5, "shards": [broken]}
+        with pytest.raises(RuntimeError, match="bozuk shard girdisi"):
+            validate_tar_manifest(manifest)
+
+
+def test_validate_tar_manifest_raises_on_duplicate_shard_names():
+    manifest = {
+        "total_pairs": 4,
+        "shards": [
+            {"name": "TRAIN_shard_00.tar", "pairs": 2, "bytes": 10},
+            {"name": "TRAIN_shard_00.tar", "pairs": 2, "bytes": 20},
+        ],
+    }
+    with pytest.raises(RuntimeError, match="tekrar eden shard adları"):
+        validate_tar_manifest(manifest)
+
+
+# ============================================================================
+# 8b) Drift guard: training/veri_tar_paketleme_hucresi.py, paste-run tasarımı
+#     gereği (repo klonu gerektirmesin diye) bu üç fonksiyonu lib'den BİREBİR
+#     KOPYA taşır — kopya lib'deki kaynaktan saparsa bu test kırmızıya döner
+#     (tek doğruluk kaynağı: training/train_colab_lib.py).
+# ============================================================================
+_LIB_PATH = Path(__file__).resolve().parent.parent / "training" / "train_colab_lib.py"
+_PACKER_CELL_PATH = Path(__file__).resolve().parent.parent / "training" / "veri_tar_paketleme_hucresi.py"
+
+
+def _function_def(path: Path, name: str) -> ast.FunctionDef:
+    # DİKKAT: paketleme hücresi import EDİLEMEZ (paste-run — modül import'u
+    # main()'i, dolayısıyla drive.mount'u çalıştırırdı); yalnız kaynak metin
+    # ast ile ayrıştırılır.
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    for node in tree.body:
+        if isinstance(node, ast.FunctionDef) and node.name == name:
+            return node
+    raise AssertionError(f"{path} içinde fonksiyon bulunamadı: {name}")
+
+
+@pytest.mark.parametrize("func_name", ["tar_shard_name", "split_stems_to_shards", "validate_tar_manifest"])
+def test_packer_cell_copies_match_lib_source(func_name):
+    lib_node = _function_def(_LIB_PATH, func_name)
+    cell_node = _function_def(_PACKER_CELL_PATH, func_name)
+    assert ast.dump(cell_node) == ast.dump(lib_node), (
+        f"{func_name}: paketleme hücresindeki kopya lib'den SAPMIŞ — "
+        f"tek doğruluk kaynağı training/train_colab_lib.py, kopyayı oradan güncelleyin."
+    )
