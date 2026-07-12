@@ -783,12 +783,17 @@ def stage_drive_copy_textfx() -> None:
 
     src_im_files = list((src / "TRAIN" / "im").iterdir())
     src_gt_files = list((src / "TRAIN" / "gt").iterdir())
+    # im ve gt AYRI sayılır: yarım kalmış bir önceki yükleme (VM kapanırken
+    # Drive flush'ı bitmemişse) im'i ulaşmış ama gt'si ulaşmamış çiftler
+    # bırakabilir — tek `expected_growth` iki dizinde farklı büyümeyi yanlışlıkla
+    # hata sanır (2026-07-12 v4 koşusunda yaşandı: 7200 kırık çift).
     existing_dst_im_stems = {p.stem for p in _listdir_retry(dst_train_im)}
-    new_stems = {p.stem for p in src_im_files} - existing_dst_im_stems
-    expected_growth = len(new_stems)
+    existing_dst_gt_stems = {p.stem for p in _listdir_retry(dst_train_gt)}
+    growth_im = len({p.stem for p in src_im_files} - existing_dst_im_stems)
+    growth_gt = len({p.stem for p in src_gt_files} - existing_dst_gt_stems)
 
-    pre_im, pre_gt = len(existing_dst_im_stems), len(_listdir_retry(dst_train_gt))
-    print(f"Merge öncesi Drive TRAIN: im={pre_im}, gt={pre_gt} — beklenen artış: {expected_growth}")
+    pre_im, pre_gt = len(existing_dst_im_stems), len(existing_dst_gt_stems)
+    print(f"Merge öncesi Drive TRAIN: im={pre_im}, gt={pre_gt} — beklenen artış: im +{growth_im}, gt +{growth_gt}")
 
     # YALNIZ TRAIN/ alt ağacı kopyalanır — src kökündeki stats.json BİLİNÇLİ
     # OLARAK KOPYALANMAZ (v3 fix'i: kısmi stats.json otoriter TAM stats.json'u
@@ -799,13 +804,15 @@ def stage_drive_copy_textfx() -> None:
     post_im, post_gt = len(_listdir_retry(dst_train_im)), len(_listdir_retry(dst_train_gt))
     print(f"Merge sonrası Drive TRAIN: im={post_im}, gt={post_gt}")
 
-    assert post_im - pre_im == expected_growth, (
-        f"im/ büyümesi beklenenle uyuşmuyor: {post_im - pre_im} != {expected_growth}"
+    assert post_im - pre_im == growth_im, (
+        f"im/ büyümesi beklenenle uyuşmuyor: {post_im - pre_im} != {growth_im}"
     )
-    assert post_gt - pre_gt == expected_growth, (
-        f"gt/ büyümesi beklenenle uyuşmuyor: {post_gt - pre_gt} != {expected_growth}"
+    assert post_gt - pre_gt == growth_gt, (
+        f"gt/ büyümesi beklenenle uyuşmuyor: {post_gt - pre_gt} != {growth_gt}"
     )
     assert len(src_im_files) == len(src_gt_files), "yerel textfx export'unda im/gt sayıları uyuşmuyor!"
+    # ASIL bütünlük şartı: merge sonrası her yerel stem'in im'i VE gt'si Drive'da.
+    assert post_im == post_gt, f"Drive TRAIN im/gt sayıları eşit değil: {post_im} != {post_gt}"
 
     # manifest_full.jsonl: merge_composite_manifest içerideki load_manifest
     # doğrulaması TAM şema (image+gt_alpha) istediği için ham manifest.jsonl verilemez.
@@ -814,17 +821,18 @@ def stage_drive_copy_textfx() -> None:
     n_appended = tcl.merge_composite_manifest(comp_manifest_local, comp_manifest_drive)
     print(f"train_composites_manifest.jsonl: {n_appended} yeni satır eklendi (Drive'daki mevcut "
           f"v1-v3 satırları KORUNDU, üzerine yazılmadı).")
-    assert n_appended == expected_growth, (
-        f"manifest ekleme sayısı ({n_appended}) dosya büyümesiyle ({expected_growth}) tutarsız — "
-        f"stem/id eşlemesi kontrol edilmeli."
-    )
+    # n_appended, manifest'te henüz olmayan id sayısıdır — onarım koşusunda
+    # satırlar zaten eklenmiş olduğundan 0 olabilir; dosya büyümesine eşitlik
+    # ŞART DEĞİL (2026-07-12 dersi). Yeterli şart: dedupe'lu ekleme hatasızsa
+    # ve dosya sayıları eşitse bütünlük tamam.
 
     print("\nBÜTÜNLÜK KONTROLÜ BAŞARILI — v4 (text/fx/illustration) verisi Drive'a MERGE edildi.")
     report(
         "drive_copy", "done",
-        added_files=expected_growth, added_manifest_rows=n_appended,
+        added_im=growth_im, added_gt=growth_gt, added_manifest_rows=n_appended,
         total_im=post_im, total_gt=post_gt,
     )
+
 
 
 # ==========================================================================
@@ -838,6 +846,14 @@ def main() -> None:
     stage_export_textfx()
     stage_drive_copy_textfx()
     report("ALL", "done")
+    # KRİTİK (2026-07-12 dersi): Drive yazımları ASENKRON tamponlanır — VM bu
+    # flush bitmeden kapatılırsa dosyalar SESSİZCE kaybolur (7200 kırık çift
+    # böyle oluştu). flush_and_unmount() tamponu boşaltmayı ZORLAR ve bitene
+    # kadar bloklar. Drive'a yazan HER ŞEYDEN (report dahil) SONRA çağrılır.
+    print("Drive flush ediliyor (asenkron yazımların buluta inmesi bekleniyor)...")
+    from google.colab import drive as _gdrive
+    _gdrive.flush_and_unmount()
+    print("Drive flush TAMAM — VM artık güvenle kapatılabilir/değiştirilebilir.")
 
 
 try:
