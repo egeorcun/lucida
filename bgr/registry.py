@@ -3,6 +3,7 @@ from bgr.segmenter import BiRefNetSegmenter, LocalBiRefNetSegmenter, Segmenter
 
 MODEL_SPECS: dict[str, dict] = {
     "birefnet-hr": {"model_id": "ZhengPeng7/BiRefNet_HR", "input_size": 2048},
+    "inspyrenet": {"engine": "inspyrenet"},
     "rmbg-2.0": {"model_id": "briaai/RMBG-2.0", "input_size": 1024},
     "bgr-v1": {
         "ckpt": "data/checkpoints/epoch_1.pth",
@@ -42,7 +43,11 @@ def get_segmenter(name: str) -> Segmenter:
     spec = MODEL_SPECS[base_name]  # bilinmeyen ad -> KeyError
     model_id = spec.get("model_id", spec.get("arch_id"))
     try:
-        if "ckpt" in spec:
+        if spec.get("engine") == "inspyrenet":
+            from bgr.segmenter import InSPyReNetSegmenter
+
+            base = InSPyReNetSegmenter(name=base_name)
+        elif "ckpt" in spec:
             base = LocalBiRefNetSegmenter(
                 ckpt_path=spec["ckpt"],
                 input_size=spec["input_size"],

@@ -98,3 +98,24 @@ class LocalBiRefNetSegmenter(BiRefNetSegmenter):
                 f"  checkpoint: {ckpt_path}, arch: {arch_id}"
             ) from e
         self.model.to(self.device).eval()
+
+
+class InSPyReNetSegmenter(Segmenter):
+    """InSPyReNet (ACCV 2022) — `transparent-background` paketi üzerinden.
+
+    Paket kendi ön/son işlemesini yapar; `process(..., type="map")` girdiyle
+    aynı boyutta gri tonlamalı alpha haritası döner. Alpha sözleşmesi diğer
+    segmenter'larla aynı: float32, (H, W), [0, 1], giriş çözünürlüğünde.
+    Cihaz: paket MPS'i resmi desteklemediği için CPU'ya sabitlenir (yavaş ama
+    deterministik; benchmark tek seferlik koşulduğundan kabul edilebilir)."""
+
+    def __init__(self, name: str = "inspyrenet"):
+        from transparent_background import Remover
+
+        self.name = name
+        self.remover = Remover(mode="base", device="cpu")
+
+    def predict_alpha(self, image: Image.Image) -> np.ndarray:
+        out = self.remover.process(image.convert("RGB"), type="map")
+        alpha = np.asarray(out.convert("L"), dtype=np.float32) / 255.0
+        return alpha
