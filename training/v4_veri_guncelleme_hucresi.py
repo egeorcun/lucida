@@ -653,6 +653,15 @@ def stage_textfx() -> dict:
         "'downloads' aşaması loglarını inceleyin."
     )
 
+    # illustration hedefi ToonOut havuzundan HESAPLANIR: make_textfx.run(),
+    # counts'ta VERİLMEYEN kategoriyi 0 sayar ("otomatik" diye bir davranışı
+    # yok — ilk koşuda bu yüzden illustration hiç üretilmedi). Her çift 3
+    # kopya üretir (c00/c01 kompozit + c02 orijinal), havuzun tamamı kullanılır.
+    n_toonout = len(mtx._pairs_from_dir(TOONOUT_DIR))
+    assert n_toonout > 0, f"{TOONOUT_DIR} altında im/gt çifti yok — 'downloads' loglarına bakın."
+    run_counts = dict(TEXTFX_COUNTS)
+    run_counts["illustration"] = 3 * n_toonout
+
     try:
         counts = mtx.run(
             out_dir=TEXTFX_OUT_DIR,
@@ -661,7 +670,7 @@ def stage_textfx() -> dict:
             toonout_dir=TOONOUT_DIR,
             font_dir=FONT_DIR,
             seed=SEED,
-            counts=TEXTFX_COUNTS,  # illustration BİLEREK yok — ToonOut boyutundan otomatik
+            counts=run_counts,
         )
     except TypeError as e:
         raise RuntimeError(
@@ -674,15 +683,34 @@ def stage_textfx() -> dict:
     print("make_textfx.run() kategori bazlı üretim:", counts)
 
     # Manifest guard'ı (v3 dersi): boş/eksik manifest'le export'a GEÇME.
+    # DİKKAT: make_textfx'in çıktı manifest'i {"id","category"} satırlarıdır —
+    # benchmark.testset.load_manifest (image/gt_alpha zorunlu) BURADA KULLANILMAZ,
+    # tcl.ensure_manifest_pairs de o şemayı beklediği için kullanılamaz.
     out_manifest = TEXTFX_OUT_DIR / "manifest.jsonl"
-    total_pairs = tcl.ensure_manifest_pairs(out_manifest)
+    if not out_manifest.exists():
+        raise RuntimeError(f"{out_manifest} yok — make_textfx üretimi başarısız olmuş olmalı.")
+    rows = [json.loads(line) for line in out_manifest.read_text().splitlines() if line.strip()]
+    total_pairs = len(rows)
+    if total_pairs == 0:
+        raise RuntimeError(f"{out_manifest} boş — export'a geçilmiyor (v3 dersi).")
 
-    # PRE-FLIGHT: üretilen sayılar kategori bazında (manifest'ten, otoriter).
-    rows = load_manifest(str(out_manifest))
+    # export_birefnet.export() TAM testset şeması ister (image + gt_alpha
+    # yolları) — {"id","category"} satırlarından türetip yanına yazıyoruz.
+    # Yol sözleşmesi make_textfx._save_pair ile aynı: im/{id}.jpg + gt/{id}.png.
+    full_manifest = TEXTFX_OUT_DIR / "manifest_full.jsonl"
+    with open(full_manifest, "w") as f:
+        for r in rows:
+            im_p = TEXTFX_OUT_DIR / "im" / f"{r['id']}.jpg"
+            gt_p = TEXTFX_OUT_DIR / "gt" / f"{r['id']}.png"
+            if not (im_p.exists() and gt_p.exists()):
+                raise RuntimeError(f"manifest satırının dosyası eksik: {r['id']} — üretim yarım kalmış olabilir.")
+            f.write(json.dumps({"id": r["id"], "image": str(im_p),
+                                "category": r["category"], "gt_alpha": str(gt_p)},
+                               ensure_ascii=False) + "\n")
     by_cat: dict[str, int] = {}
     for r in rows:
         by_cat[r["category"]] = by_cat.get(r["category"], 0) + 1
-    print(f"PRE-FLIGHT — {out_manifest}: toplam {total_pairs} GT'li çift, kategori bazında:")
+    print(f"PRE-FLIGHT — {out_manifest}: toplam {total_pairs} çift, kategori bazında:")
     for cat, n in sorted(by_cat.items(), key=lambda kv: -kv[1]):
         print(f"  {cat}: {n}")
     low = {c: by_cat.get(c, 0) for c in V4_NEW_CATEGORIES if by_cat.get(c, 0) < 100}
@@ -705,8 +733,11 @@ def stage_export_textfx() -> dict:
     report("export", "running")
     import export_birefnet as eb  # scripts/ sys.path'te
 
+    # manifest_full.jsonl: stage_textfx'in export şemasına (image+gt_alpha)
+    # dönüştürdüğü manifest — ham manifest.jsonl {"id","category"} olduğundan
+    # export'a DOĞRUDAN verilemez.
     stats = eb.export(
-        manifest_path=str(TEXTFX_OUT_DIR / "manifest.jsonl"),
+        manifest_path=str(TEXTFX_OUT_DIR / "manifest_full.jsonl"),
         out_dir=EXPORT_DIR,
         split_name="TRAIN",
     )
@@ -760,7 +791,9 @@ def stage_drive_copy_textfx() -> None:
     )
     assert len(src_im_files) == len(src_gt_files), "yerel textfx export'unda im/gt sayıları uyuşmuyor!"
 
-    comp_manifest_local = TEXTFX_OUT_DIR / "manifest.jsonl"
+    # manifest_full.jsonl: merge_composite_manifest içerideki load_manifest
+    # doğrulaması TAM şema (image+gt_alpha) istediği için ham manifest.jsonl verilemez.
+    comp_manifest_local = TEXTFX_OUT_DIR / "manifest_full.jsonl"
     comp_manifest_drive = dst / "train_composites_manifest.jsonl"
     n_appended = tcl.merge_composite_manifest(comp_manifest_local, comp_manifest_drive)
     print(f"train_composites_manifest.jsonl: {n_appended} yeni satır eklendi (Drive'daki mevcut "
