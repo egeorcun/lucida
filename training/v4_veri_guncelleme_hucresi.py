@@ -765,13 +765,29 @@ def stage_drive_copy_textfx() -> None:
         f"sıfırdan veri seti oluşturmak için colab_devam_hucresi.py kullanılmalı."
     )
 
+    def _listdir_retry(d: Path, attempts: int = 4, wait_s: int = 30) -> list[Path]:
+        """Drive FUSE 42k+ dosyalı dizinlerde ara sıra 'Errno 5 I/O error' verir
+        (geçici — v3 koşusunda da görüldü, tekrar denemek yetti). Bunun için
+        bekleyerek yeniden dener; son denemede hatayı olduğu gibi yükseltir."""
+        import time
+        for i in range(attempts):
+            try:
+                return list(d.iterdir())
+            except OSError as e:
+                if i == attempts - 1:
+                    raise
+                print(f"UYARI: {d} listelenirken {e} — {wait_s}s bekleyip yeniden denenecek "
+                      f"({i + 1}/{attempts - 1}).")
+                time.sleep(wait_s)
+        raise AssertionError("unreachable")
+
     src_im_files = list((src / "TRAIN" / "im").iterdir())
     src_gt_files = list((src / "TRAIN" / "gt").iterdir())
-    existing_dst_im_stems = {p.stem for p in dst_train_im.iterdir()}
+    existing_dst_im_stems = {p.stem for p in _listdir_retry(dst_train_im)}
     new_stems = {p.stem for p in src_im_files} - existing_dst_im_stems
     expected_growth = len(new_stems)
 
-    pre_im, pre_gt = len(list(dst_train_im.iterdir())), len(list(dst_train_gt.iterdir()))
+    pre_im, pre_gt = len(existing_dst_im_stems), len(_listdir_retry(dst_train_gt))
     print(f"Merge öncesi Drive TRAIN: im={pre_im}, gt={pre_gt} — beklenen artış: {expected_growth}")
 
     # YALNIZ TRAIN/ alt ağacı kopyalanır — src kökündeki stats.json BİLİNÇLİ
@@ -780,7 +796,7 @@ def stage_drive_copy_textfx() -> None:
     print(f"Kopyalanıyor (MERGE, silme yok, yalnız TRAIN/): {src / 'TRAIN'} -> {dst / 'TRAIN'}")
     shutil.copytree(src / "TRAIN", dst / "TRAIN", dirs_exist_ok=True)
 
-    post_im, post_gt = len(list(dst_train_im.iterdir())), len(list(dst_train_gt.iterdir()))
+    post_im, post_gt = len(_listdir_retry(dst_train_im)), len(_listdir_retry(dst_train_gt))
     print(f"Merge sonrası Drive TRAIN: im={post_im}, gt={post_gt}")
 
     assert post_im - pre_im == expected_growth, (
