@@ -403,9 +403,82 @@ def stage_manifest(entries: list[dict], stems: list[str],
 # ==========================================================================
 # Orkestrasyon — üst düzeyde koşar (hücre yapıştırılıp çalıştırıldığında).
 # ==========================================================================
+LOCAL_SRC = Path("/content/pack_src")  # lokal toplu kopya hedefi (localize aşaması)
+
+
+def stage_localize(
+    im_by_stem: dict[str, Path],
+    gt_by_stem: dict[str, Path],
+    stems: list[str],
+) -> tuple[dict[str, Path], dict[str, Path]]:
+    """Drive'daki çiftleri PARALEL olarak VM lokal diskine kopyalar ve yol
+    haritalarını lokale çevirir. NEDEN: tar'a doğrudan FUSE'dan tek-tek okuma
+    ~2.3 çift/sn (52.9k çift ≈ 6.5 saat!); paralel kopya ~11-18 çift/sn
+    (~75 dk), lokalden tar'lama ise dakikalar sürer. İdempotent: boyutu tutan
+    mevcut lokal dosya atlanır (kesilen koşu kaldığı yerden devam eder)."""
+    import concurrent.futures
+
+    report("localize", "running")
+    # Disk alanı: bu VM'de önceki veri koşusundan kalan büyük klasörler
+    # olabilir — tar üretimine yer açmak için bilinen geçicileri temizle.
+    for junk in ("/content/birefnet_format_textfx", "/content/my-bg-remover/data/train_textfx",
+                 "/content/downloads", "/content/my-bg-remover/data/raw_train"):
+        if Path(junk).exists():
+            shutil.rmtree(junk, ignore_errors=True)
+            print(f"disk temizliği: {junk} silindi.")
+    free_gb = shutil.disk_usage("/content").free / 1e9
+    print(f"lokal boş disk: {free_gb:.0f} GB (gerekli ~35 GB)")
+
+    local_im, local_gt = LOCAL_SRC / "im", LOCAL_SRC / "gt"
+    local_im.mkdir(parents=True, exist_ok=True)
+    local_gt.mkdir(parents=True, exist_ok=True)
+
+    def _copy_one(stem: str) -> bool:
+        pairs = ((im_by_stem[stem], local_im), (gt_by_stem[stem], local_gt))
+        for src, dst_dir in pairs:
+            dst = dst_dir / src.name
+            if dst.exists() and dst.stat().st_size == src.stat().st_size:
+                continue
+            for attempt in range(4):
+                try:
+                    shutil.copy2(src, dst)
+                    break
+                except OSError:
+                    if attempt == 3:
+                        raise
+                    time.sleep(10)
+        return True
+
+    t0 = time.time()
+    done = 0
+    errors: list[tuple[str, Exception]] = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
+        futures = {ex.submit(_copy_one, s): s for s in stems}
+        for fut in concurrent.futures.as_completed(futures):
+            try:
+                fut.result()
+                done += 1
+            except Exception as e:  # noqa: BLE001 - tek dosya hatası toplansın
+                errors.append((futures[fut], e))
+            if done % 2000 == 0:
+                rate = done / max(time.time() - t0, 1e-9)
+                print(f"  localize: {done}/{len(stems)} çift "
+                      f"({rate:.1f} çift/sn, ETA {(len(stems) - done) / rate:.0f} sn)")
+    if errors:
+        raise RuntimeError(
+            f"localize: {len(errors)}/{len(stems)} çift kopyalanamadı "
+            f"(ilk hata, stem={errors[0][0]!r}: {errors[0][1]!r})"
+        )
+    report("localize", "done", pairs=done, seconds=int(time.time() - t0))
+    new_im = {s: local_im / im_by_stem[s].name for s in stems}
+    new_gt = {s: local_gt / gt_by_stem[s].name for s in stems}
+    return new_im, new_gt
+
+
 def main() -> None:
     train_im, train_gt, tar_dir = stage0_env()  # Drive mount BURADA — her şeyden önce
     im_by_stem, gt_by_stem, stems = stage_list(train_im, train_gt)
+    im_by_stem, gt_by_stem = stage_localize(im_by_stem, gt_by_stem, stems)
     entries = stage_pack(im_by_stem, gt_by_stem, stems, tar_dir)
     stage_manifest(entries, stems, im_by_stem, gt_by_stem, tar_dir)
     report("ALL", "done")
