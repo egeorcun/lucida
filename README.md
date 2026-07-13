@@ -1,5 +1,9 @@
 # Lucida
 
+[![HF Model](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-egeorcun%2Flucida-ffcc4d)](https://huggingface.co/egeorcun/lucida)
+[![License: MIT](https://img.shields.io/badge/License-MIT-2ea44f)](LICENSE)
+[![GitHub Stars](https://img.shields.io/github/stars/egeorcun/lucida?style=social)](https://github.com/egeorcun/lucida/stargazers)
+
 **Background removal that keeps what matters: glass, camouflage, text, glow and line art.**
 
 Lucida is a [BiRefNet](https://github.com/ZhengPeng7/BiRefNet)-based image matting model fine-tuned
