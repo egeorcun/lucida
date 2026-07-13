@@ -2,6 +2,7 @@
 from bgr.segmenter import BiRefNetSegmenter, LocalBiRefNetSegmenter, Segmenter
 
 MODEL_SPECS: dict[str, dict] = {
+    "lucida": {"model_id": "egeorcun/lucida", "input_size": 1024},
     "birefnet-hr": {"model_id": "ZhengPeng7/BiRefNet_HR", "input_size": 2048},
     "inspyrenet": {"engine": "inspyrenet"},
     "rmbg-2.0": {"model_id": "briaai/RMBG-2.0", "input_size": 1024},

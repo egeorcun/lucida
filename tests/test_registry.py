@@ -10,8 +10,15 @@ from bgr.registry import MODEL_SPECS, get_segmenter
 def test_known_model_names():
     assert set(MODEL_SPECS) == {
         "birefnet-hr", "rmbg-2.0", "bgr-v1", "bgr-v2", "bgr-v3", "bgr-v4",
-        "lucida-v5", "inspyrenet",
+        "lucida-v5", "inspyrenet", "lucida",
     }
+
+
+def test_lucida_spec_fields():
+    spec = MODEL_SPECS["lucida"]
+    assert spec["model_id"] == "egeorcun/lucida"
+    assert spec["input_size"] == 1024
+    assert "ckpt" not in spec  # HF'den iner, lokal checkpoint gerektirmez
 
 
 def test_bgr_v1_spec_fields():

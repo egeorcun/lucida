@@ -19,6 +19,23 @@ def _client():
     return TestClient(app)
 
 
+def test_index_serves_html():
+    r = _client().get("/")
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("text/html")
+    assert "Lucida" in r.text
+    assert "/remove" in r.text  # UI mevcut endpoint'e POST atıyor
+
+
+def test_models_endpoint():
+    r = _client().get("/models")
+    assert r.status_code == 200
+    data = r.json()
+    assert data["default"] == "lucida"
+    assert "lucida" in data["models"]
+    assert data["models"] == sorted(data["models"])
+
+
 def test_health():
     r = _client().get("/health")
     assert r.status_code == 200

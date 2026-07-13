@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lucida — Background Remover</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #171a21;
+    --border: #2a2f3a;
+    --text: #e6e8ee;
+    --muted: #8b93a5;
+    --accent: #7c9cff;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 2.5rem 1rem;
+  }
+  h1 { font-size: 1.6rem; letter-spacing: 0.04em; }
+  h1 span { color: var(--accent); }
+  p.tagline { color: var(--muted); margin: 0.4rem 0 1.6rem; font-size: 0.9rem; }
+  .controls {
+    display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;
+    justify-content: center; margin-bottom: 1.2rem;
+  }
+  label { color: var(--muted); font-size: 0.85rem; }
+  select {
+    background: var(--panel); color: var(--text);
+    border: 1px solid var(--border); border-radius: 8px;
+    padding: 0.45rem 0.7rem; font-size: 0.9rem;
+  }
+  #drop {
+    width: min(680px, 100%);
+    border: 2px dashed var(--border);
+    border-radius: 14px;
+    background: var(--panel);
+    padding: 3rem 1.5rem;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+    color: var(--muted);
+  }
+  #drop.dragover { border-color: var(--accent); background: #1b2030; }
+  #drop strong { color: var(--text); }
+  #file { display: none; }
+  #status { margin-top: 1rem; color: var(--muted); font-size: 0.9rem; min-height: 1.2em; }
+  #status.error { color: #ff7b7b; }
+  #result { margin-top: 1.4rem; display: none; flex-direction: column; align-items: center; gap: 1rem; }
+  #result img {
+    max-width: min(680px, 90vw);
+    max-height: 60vh;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    /* transparency checkerboard */
+    background:
+      conic-gradient(#3a3f4b 0 25%, #262a33 0 50%, #3a3f4b 0 75%, #262a33 0) 0 0 / 24px 24px;
+  }
+  a.btn {
+    display: inline-block;
+    background: var(--accent); color: #0c0f16;
+    font-weight: 600; text-decoration: none;
+    padding: 0.55rem 1.3rem; border-radius: 8px; font-size: 0.95rem;
+  }
+  a.btn:hover { filter: brightness(1.1); }
+</style>
+</head>
+<body>
+  <h1><span>Lucida</span> Background Remover</h1>
+  <p class="tagline">Drop an image, get a transparent PNG.</p>
+
+  <div class="controls">
+    <label for="model">Model</label>
+    <select id="model"></select>
+  </div>
+
+  <div id="drop">
+    <strong>Drag &amp; drop</strong> an image here, or <strong>click to choose a file</strong>
+  </div>
+  <input type="file" id="file" accept="image/*">
+
+  <div id="status"></div>
+
+  <div id="result">
+    <img id="preview" alt="Result with transparent background">
+    <a id="download" class="btn" download="lucida-output.png">Download PNG</a>
+  </div>
+
+<script>
+(function () {
+  var drop = document.getElementById("drop");
+  var fileInput = document.getElementById("file");
+  var modelSel = document.getElementById("model");
+  var statusEl = document.getElementById("status");
+  var resultEl = document.getElementById("result");
+  var preview = document.getElementById("preview");
+  var download = document.getElementById("download");
+  var currentUrl = null;
+
+  fetch("/models")
+    .then(function (r) { return r.json(); })
+    .then(function (data) {
+      data.models.forEach(function (name) {
+        var opt = document.createElement("option");
+        opt.value = name;
+        opt.textContent = name;
+        if (name === data.default) opt.selected = true;
+        modelSel.appendChild(opt);
+      });
+    })
+    .catch(function () { setStatus("Could not load model list.", true); });
+
+  function setStatus(msg, isError) {
+    statusEl.textContent = msg;
+    statusEl.className = isError ? "error" : "";
+  }
+
+  function handleFile(file) {
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      setStatus("Please choose an image file.", true);
+      return;
+    }
+    setStatus("Processing… (first request downloads the model, this can take a while)");
+    resultEl.style.display = "none";
+
+    var form = new FormData();
+    form.append("file", file, file.name);
+    var url = "/remove?model=" + encodeURIComponent(modelSel.value);
+
+    fetch(url, { method: "POST", body: form })
+      .then(function (r) {
+        if (!r.ok) {
+          return r.text().then(function (t) { throw new Error(t || ("HTTP " + r.status)); });
+        }
+        return r.blob();
+      })
+      .then(function (blob) {
+        if (currentUrl) URL.revokeObjectURL(currentUrl);
+        currentUrl = URL.createObjectURL(blob);
+        preview.src = currentUrl;
+        download.href = currentUrl;
+        var base = file.name.replace(/\.[^.]+$/, "");
+        download.download = base + "-lucida.png";
+        resultEl.style.display = "flex";
+        setStatus("Done.");
+      })
+      .catch(function (err) {
+        setStatus("Error: " + err.message, true);
+      });
+  }
+
+  drop.addEventListener("click", function () { fileInput.click(); });
+  fileInput.addEventListener("change", function () { handleFile(fileInput.files[0]); });
+
+  ["dragenter", "dragover"].forEach(function (ev) {
+    drop.addEventListener(ev, function (e) {
+      e.preventDefault();
+      drop.classList.add("dragover");
+    });
+  });
+  ["dragleave", "drop"].forEach(function (ev) {
+    drop.addEventListener(ev, function (e) {
+      e.preventDefault();
+      drop.classList.remove("dragover");
+    });
+  });
+  drop.addEventListener("drop", function (e) {
+    handleFile(e.dataTransfer.files[0]);
+  });
+})();
+</script>
+</body>
+</html>

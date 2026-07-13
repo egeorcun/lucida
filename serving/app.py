@@ -1,15 +1,18 @@
 """Lokal bg-remove servisi: uv run uvicorn serving.app:app --port 8756"""
 import io
 import threading
+from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, UploadFile
-from fastapi.responses import Response
+from fastapi.responses import FileResponse, Response
 from PIL import Image
 
 from bgr.pipeline import PipelineSegmenter
 from bgr.registry import MODEL_SPECS, get_segmenter
 
 app = FastAPI(title="my-bg-remover")
+_STATIC_DIR = Path(__file__).parent / "static"
+_DEFAULT_MODEL = "lucida"
 _SEGMENTERS: dict[str, object] = {}
 _SEGMENTERS_LOCK = threading.Lock()
 
@@ -22,9 +25,19 @@ def _load_segmenter(name: str):
     return _SEGMENTERS[name]
 
 
+@app.get("/", include_in_schema=False)
+def index():
+    return FileResponse(_STATIC_DIR / "index.html", media_type="text/html")
+
+
 @app.get("/health")
 def health():
     return {"status": "ok", "models": sorted(MODEL_SPECS)}
+
+
+@app.get("/models")
+def models():
+    return {"models": sorted(MODEL_SPECS), "default": _DEFAULT_MODEL}
 
 
 @app.post("/remove")
