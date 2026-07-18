@@ -18,7 +18,7 @@ The manifest is pinned in git at `data/testset/manifest.jsonl` (one JSON line pe
 | transparent | 25 | Transparent-460 **test split** | glass, membranes, smoke |
 | camouflage | 25 | CAMO **test split** (HF `nobg/camo`) | COD10K's official pixel GT is only distributed via Google Drive with no usable HF mirror, so the CAMO test split (Le et al. 2019) is used instead; the substitution is documented in `scripts/build_testset.py` |
 | text | 12 | synthetic, `scripts/make_textfx.py` with **seed 777** | training data uses seed 42 — the deterministic per-item RNG (`_item_rng`) makes the two sets fully disjoint |
-| fx | 12 | synthetic, `scripts/make_textfx.py` with **seed 777** | generated with the v4-era fx recipe and its GT; the generator was later reworked for v5 *training* data, so fx scores for lucida-v5 are conservative |
+| fx | 12 | synthetic, `scripts/make_textfx.py` with **seed 777** | generated with the v4-era fx recipe and its GT; the generator was later reworked for v5 *training* data, so fx scores for lucida-v5+ are conservative |
 | illustration | 12 | ToonOut **test split** | training used only the ToonOut train split; the test split was deliberately never downloaded during training data preparation (`training/v4_veri_guncelleme_hucresi.py`) |
 
 Two properties matter here:
@@ -55,7 +55,7 @@ Ideogram API calls are skipped when the output file already exists.
 ```bash
 # 1) Open models + local checkpoints -> alpha PNGs + RGBA previews + metrics.json
 uv run python -m benchmark.run \
-    --models lucida-v5,inspyrenet,rmbg-2.0,birefnet-hr \
+    --models lucida-v6,inspyrenet,rmbg-2.0,birefnet-hr \
     --manifest data/testset/manifest.jsonl \
     --out results/baseline --rgba
 
@@ -68,20 +68,20 @@ uv run python scripts/score_ideogram.py     # merges "ideogram" into metrics.jso
 # 3) Detailed per-metric Markdown comparison (MAE/SAD/MSE/Grad/Conn with deltas)
 uv run python scripts/compare_v1.py \
     --metrics results/baseline/metrics.json \
-    --v1 lucida-v5,lucida-v5+refine \
+    --v1 lucida-v6,lucida-v6+refine \
     --baselines inspyrenet,ideogram,rmbg-2.0,birefnet-hr
 
 # 4) Optional: side-by-side HTML gallery (original | GT | models | ideogram)
 uv run python -m benchmark.gallery \
     --manifest data/testset/manifest.jsonl \
     --results results/baseline \
-    --models lucida-v5,inspyrenet,rmbg-2.0,birefnet-hr \
+    --models lucida-v6,inspyrenet,rmbg-2.0,birefnet-hr \
     --out results/baseline/gallery.html
 ```
 
 Notes:
 
-- `lucida-v5` resolves via `bgr/registry.py` to the local checkpoint
+- `lucida-v6` resolves via `bgr/registry.py` to the local checkpoint
   `data/checkpoints/epoch_5.pth` (download from
   [egeorcun/lucida](https://huggingface.co/egeorcun/lucida)); it runs the BiRefNet_HR architecture
   at 1024px input.
@@ -101,7 +101,7 @@ call failed are reported on the console and excluded from that model's averages.
 
 ## Result snapshot
 
-Because `results/` is git-ignored, the final lucida-v5 table is committed as
+Because `results/` is git-ignored, the final lucida-v6 table is committed as
 [docs/benchmark-results.md](benchmark-results.md) (verbatim copy of
-`results/baseline/lucida-v5-comparison.md`, a compact per-category MAE grid assembled from the
+`results/baseline/lucida-v6-comparison.md`, a compact per-category MAE grid assembled from the
 `per_category` section of `metrics.json`).

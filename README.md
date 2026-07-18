@@ -71,7 +71,7 @@ Original | Lucida v5 (RGBA on a dark checkerboard) | competitor. MAE per image s
 
 ![Text comparison: Lucida vs Ideogram](docs/assets/compare-text.jpg)
 
-**Illustration** — anime-style character on a bench:
+**Illustration** — anime rider having a meal; Lucida beats the commercial reference 5x on this image:
 
 ![Illustration comparison: Lucida vs RMBG-2.0](docs/assets/compare-illustration.jpg)
 
@@ -200,7 +200,7 @@ regarding the research-only sources.
 
 ## Limitations
 
-- **Transparency:** the commercial reference (Ideogram) still leads, 0.0343 vs 0.0376 MAE.
+- **Transparency:** the commercial reference (Ideogram) still leads, 0.0343 vs 0.0403 MAE.
 - **Complex scenes and thin structures:** InSPyReNet's specialist advantage stands (0.0110/0.0166
   vs our 0.0666/0.0350); RMBG-2.0 leads hair.
 - **Semantic coherence:** subject selection on scenes with partially visible people or ambiguous
