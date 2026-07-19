@@ -189,3 +189,15 @@
 {"id": "toonout_0.6_talking-over-a-meal_", "image": "data/testset/images/toonout_0.6_talking-over-a-meal_.jpg", "category": "illustration", "gt_alpha": "data/testset/gt/toonout_0.6_talking-over-a-meal_.png"}
 {"id": "toonout_0.7_riding-a-motorbike_e", "image": "data/testset/images/toonout_0.7_riding-a-motorbike_e.jpg", "category": "illustration", "gt_alpha": "data/testset/gt/toonout_0.7_riding-a-motorbike_e.png"}
 {"id": "toonout_0.8_napping-on-a-chair_2", "image": "data/testset/images/toonout_0.8_napping-on-a-chair_2.jpg", "category": "illustration", "gt_alpha": "data/testset/gt/toonout_0.8_napping-on-a-chair_2.png"}
+{"id": "design_00000_c00", "image": "data/testset/images/design_00000_c00.jpg", "category": "design", "gt_alpha": "data/testset/gt/design_00000_c00.png"}
+{"id": "design_00001_c00", "image": "data/testset/images/design_00001_c00.jpg", "category": "design", "gt_alpha": "data/testset/gt/design_00001_c00.png"}
+{"id": "design_00002_c00", "image": "data/testset/images/design_00002_c00.jpg", "category": "design", "gt_alpha": "data/testset/gt/design_00002_c00.png"}
+{"id": "design_00003_c00", "image": "data/testset/images/design_00003_c00.jpg", "category": "design", "gt_alpha": "data/testset/gt/design_00003_c00.png"}
+{"id": "design_00004_c00", "image": "data/testset/images/design_00004_c00.jpg", "category": "design", "gt_alpha": "data/testset/gt/design_00004_c00.png"}
+{"id": "design_00005_c00", "image": "data/testset/images/design_00005_c00.jpg", "category": "design", "gt_alpha": "data/testset/gt/design_00005_c00.png"}
+{"id": "design_00006_c00", "image": "data/testset/images/design_00006_c00.jpg", "category": "design", "gt_alpha": "data/testset/gt/design_00006_c00.png"}
+{"id": "design_00007_c00", "image": "data/testset/images/design_00007_c00.jpg", "category": "design", "gt_alpha": "data/testset/gt/design_00007_c00.png"}
+{"id": "design_00008_c00", "image": "data/testset/images/design_00008_c00.jpg", "category": "design", "gt_alpha": "data/testset/gt/design_00008_c00.png"}
+{"id": "design_00009_c00", "image": "data/testset/images/design_00009_c00.jpg", "category": "design", "gt_alpha": "data/testset/gt/design_00009_c00.png"}
+{"id": "design_00010_c00", "image": "data/testset/images/design_00010_c00.jpg", "category": "design", "gt_alpha": "data/testset/gt/design_00010_c00.png"}
+{"id": "design_00011_c00", "image": "data/testset/images/design_00011_c00.jpg", "category": "design", "gt_alpha": "data/testset/gt/design_00011_c00.png"}

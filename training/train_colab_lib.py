@@ -198,12 +198,34 @@ birlikte payı da düşürüldü. complex %19 KORUNDU (InSPyReNet'in 0.0110'u
 kategori tavanının yüksekliğini gösterdi; bizim gerçekçi epoch-5 hedefi
 ~0.045-0.055). camo %12 (marj devasa), general %4 değişmedi."""
 
+SAMPLER_PRESET_V7: dict[str, float] = {
+    "camouflage": 0.10,
+    "transparent": 0.22,
+    "hair": 0.10,
+    "complex": 0.19,
+    "thin": 0.12,
+    "general": 0.02,
+    "text": 0.06,
+    "fx": 0.05,
+    "illustration": 0.06,
+    "design": 0.08,
+}
+"""v7 hedefi (toplam TAM %100) — issue #2 (baskı-tasarımı/sticker stil açığı)
+için yeni sentetik `design` kategorisi (%8): kağıt-beyazı zeminde stilize özne
+(halftone/posterize/mürekkep) + eskitilmiş display yazı + duman/ışıma efektleri.
+Pay, hedefleri çoktan tutturulmuş kategorilerden kırpıldı: camo .12->.10
+(0.0249, en yakın rakibin 2.3 katı önde), hair .12->.10, text .07->.06 (0.0112,
+ticari referans geçildi), illustration .07->.06 (0.0089, herkesin önünde),
+general .04->.02. transparent (.22 — Ideogram 0.0343 hedefi hâlâ açık) ve
+complex/thin/fx DEĞİŞMEDİ."""
+
 SAMPLER_PRESETS: dict[str, dict[str, float]] = {
     "v1": SAMPLER_PRESET_V1,
     "v2": SAMPLER_PRESET_V2,
     "v3": SAMPLER_PRESET_V3,
     "v4": SAMPLER_PRESET_V4,
     "v5": SAMPLER_PRESET_V5,
+    "v7": SAMPLER_PRESET_V7,
 }
 """Notebook `SAMPLER_PRESET` parametresinin ("v1"/"v2"/"v3"/"v4") çözümlendiği
 tablo — bkz. `training/train_colab.ipynb` parametre hücresi ve hücre (e)."""

@@ -15,6 +15,7 @@ from training.train_colab_lib import (
     SAMPLER_PRESET_V4,
     SAMPLER_PRESETS,
     SAMPLER_PRESET_V5,
+    SAMPLER_PRESET_V7,
     apply_config_patches,
     compute_expected_shares,
     compute_sample_weights,
@@ -105,7 +106,7 @@ def test_sampler_preset_v1_matches_default_target_share():
 
 
 def test_sampler_presets_registry_has_v1_v2_v3_and_v4():
-    assert set(SAMPLER_PRESETS) == {"v1", "v2", "v3", "v4", "v5"}
+    assert set(SAMPLER_PRESETS) == {"v1", "v2", "v3", "v4", "v5", "v7"}
     assert SAMPLER_PRESETS["v1"] is SAMPLER_PRESET_V1
     assert SAMPLER_PRESETS["v2"] is SAMPLER_PRESET_V2
     assert SAMPLER_PRESETS["v3"] is SAMPLER_PRESET_V3
@@ -1028,3 +1029,11 @@ def test_packer_cell_copies_match_lib_source(func_name):
         f"{func_name}: paketleme hücresindeki kopya lib'den SAPMIŞ — "
         f"tek doğruluk kaynağı training/train_colab_lib.py, kopyayı oradan güncelleyin."
     )
+
+
+# 1c-4) v7 sampler preset (issue #2: design kategorisi — bkz. docstring).
+def test_sampler_preset_v7():
+    assert abs(sum(SAMPLER_PRESET_V7.values()) - 1.0) < 1e-9
+    assert SAMPLER_PRESET_V7["design"] == 0.08
+    assert SAMPLER_PRESET_V7["transparent"] == SAMPLER_PRESET_V5["transparent"]
+    assert SAMPLER_PRESET_V7["complex"] == SAMPLER_PRESET_V5["complex"]

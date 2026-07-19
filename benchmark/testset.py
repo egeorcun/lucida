@@ -3,7 +3,7 @@ import json
 
 CATEGORIES = {
     "hair", "transparent", "thin", "product", "complex", "illustration",
-    "general", "camouflage", "text", "fx",
+    "general", "camouflage", "text", "fx", "design",
 }
 _KEYS = {"id", "image", "category", "gt_alpha"}
 
