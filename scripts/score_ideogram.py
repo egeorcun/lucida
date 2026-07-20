@@ -66,7 +66,12 @@ def score_ideogram(ideogram_dir: str, manifest_path: str, metrics_path: str) -> 
             cat_acc[categories[rid]][k].append(v)
     per_category = {c: {k: float(np.mean(v)) for k, v in ms.items()} for c, ms in cat_acc.items()}
     keys = {k for m in per_image.values() for k in m}
-    overall = {k: float(np.mean([m[k] for m in per_image.values()])) for k in keys} if per_image else {}
+    # `if k in m`: bg_mae/bg_smear are omitted per-image when there is no
+    # measurable pure background (see benchmark.metrics.all_metrics).
+    overall = (
+        {k: float(np.mean([m[k] for m in per_image.values() if k in m])) for k in keys}
+        if per_image else {}
+    )
 
     new_result = {
         "per_image": {MODEL_NAME: per_image},

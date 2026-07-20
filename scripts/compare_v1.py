@@ -16,7 +16,9 @@ import argparse
 import json
 from pathlib import Path
 
-METRIC_ORDER = ["mae", "sad", "mse", "grad", "conn"]  # all: lower = better
+# all: lower = better; bg_mae/bg_smear (v8) = residue over the true (GT==0,
+# eroded) background — the smear signal the plain MAE barely registers.
+METRIC_ORDER = ["mae", "sad", "mse", "grad", "conn", "bg_mae", "bg_smear"]
 
 
 def _delta_cell(v1_value: float, baseline_value: float) -> str:

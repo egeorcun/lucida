@@ -13,6 +13,13 @@ from bgr.decontaminate import decontaminate
 from bgr.registry import get_segmenter
 
 
+def _nanmean(vals) -> float:
+    """np.nanmean without the all-NaN RuntimeWarning (returns NaN silently)."""
+    arr = np.asarray(list(vals), dtype=float)
+    finite = arr[~np.isnan(arr)]
+    return float(finite.mean()) if finite.size else float("nan")
+
+
 def _load_alpha(path: str) -> np.ndarray:
     img = Image.open(path)
     if img.mode == "RGBA":
@@ -56,12 +63,15 @@ def run_benchmark(
         for rid, m in images.items():
             for k, v in m.items():
                 cat_acc[categories[rid]][k].append(v)
+        # NaN-aware mean: bg_mae/bg_smear are NaN for images with no measurable
+        # pure background (see benchmark.metrics.bg_stats) — those images must
+        # not poison the aggregates.
         per_category[name] = {
-            c: {k: float(np.mean(v)) for k, v in ms.items()} for c, ms in cat_acc.items()
+            c: {k: _nanmean(v) for k, v in ms.items()} for c, ms in cat_acc.items()
         }
         keys = {k for m in images.values() for k in m}
         overall[name] = {
-            k: float(np.mean([m[k] for m in images.values()])) for k in keys
+            k: _nanmean([m[k] for m in images.values() if k in m]) for k in keys
         }
 
     result = {"per_image": per_image, "per_category": per_category, "overall": overall}

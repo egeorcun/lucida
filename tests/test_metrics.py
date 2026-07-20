@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from benchmark.metrics import all_metrics, conn_error, grad_error, mae, mse, sad
+from benchmark.metrics import all_metrics, bg_stats, conn_error, grad_error, mae, mse, sad
 
 
 @pytest.fixture
@@ -44,4 +44,44 @@ def test_conn_penalizes_disconnected_blobs(square_alpha):
 
 def test_all_metrics_keys(square_alpha):
     m = all_metrics(square_alpha, square_alpha)
+    assert set(m) == {"sad", "mae", "mse", "grad", "conn", "bg_mae", "bg_smear"}
+
+
+def test_bg_stats_clean_background_is_zero(square_alpha):
+    m = bg_stats(square_alpha, square_alpha)
+    assert m["bg_mae"] == pytest.approx(0.0)
+    assert m["bg_smear"] == pytest.approx(0.0)
+
+
+def test_bg_stats_measures_haze_missed_by_mae(square_alpha):
+    """A faint 0.1 haze over the whole background: overall MAE stays small but
+    bg_mae/bg_smear must flag it — this is the metric's reason to exist."""
+    pred = square_alpha.copy()
+    pred[square_alpha == 0.0] = 0.1
+    m = bg_stats(pred, square_alpha)
+    assert m["bg_mae"] == pytest.approx(0.1, abs=1e-6)
+    assert m["bg_smear"] == pytest.approx(1.0)
+
+
+def test_bg_stats_erosion_excludes_soft_edge(square_alpha):
+    """Residue only in the edge band (within erosion_px of the subject) must
+    NOT count: the eroded region measures unambiguous background only."""
+    pred = square_alpha.copy()
+    pred[20:25, 25:75] = 0.5  # 5px strip hugging the square's top edge
+    m = bg_stats(pred, square_alpha)
+    assert m["bg_mae"] == pytest.approx(0.0)
+
+
+def test_bg_stats_nan_when_no_background():
+    gt = np.ones((100, 100), dtype=np.float32)  # subject fills the frame
+    m = bg_stats(gt, gt)
+    assert np.isnan(m["bg_mae"]) and np.isnan(m["bg_smear"])
+
+
+def test_all_metrics_omits_bg_keys_when_unmeasurable():
+    """No NaN may reach the per-image dicts (metrics.json must stay valid
+    strict JSON and dict-equality must round-trip): when there is no
+    measurable background, the bg keys are simply absent."""
+    gt = np.ones((100, 100), dtype=np.float32)
+    m = all_metrics(gt, gt)
     assert set(m) == {"sad", "mae", "mse", "grad", "conn"}

@@ -5,6 +5,7 @@ convention, SAD/Grad/Conn are divided by 1000 (for small, readable numbers).
 """
 import numpy as np
 from scipy import ndimage
+from scipy.ndimage import binary_erosion
 
 
 def _check(pred: np.ndarray, gt: np.ndarray) -> None:
@@ -68,11 +69,46 @@ def conn_error(pred: np.ndarray, gt: np.ndarray, step: float = 0.1) -> float:
     return float(np.abs(phi_pred - phi_gt).sum()) / 1000.0
 
 
-def all_metrics(pred: np.ndarray, gt: np.ndarray) -> dict[str, float]:
+def bg_stats(
+    pred: np.ndarray,
+    gt: np.ndarray,
+    smear_thresh: float = 0.05,
+    erosion_px: int = 11,
+    min_pixels: int = 1000,
+) -> dict[str, float]:
+    """Background residue over the TRUE background: the GT==0 region eroded by
+    `erosion_px` (the erosion excludes the soft edge band, so only pixels that
+    are unambiguously background are measured).
+
+    - bg_mae:   mean predicted alpha over that region (0 = clean background)
+    - bg_smear: fraction of that region with predicted alpha > `smear_thresh`
+                (the "visible smear" ratio — a faint gray haze the overall MAE
+                barely registers shows up here)
+
+    Both are NaN when the image has no measurable pure-background region
+    (fewer than `min_pixels` pixels after erosion) — aggregate with nanmean.
+    """
+    _check(pred, gt)
+    bg = binary_erosion(gt == 0.0, structure=np.ones((erosion_px, erosion_px), dtype=bool))
+    if int(bg.sum()) < min_pixels:
+        return {"bg_mae": float("nan"), "bg_smear": float("nan")}
+    vals = pred[bg]
     return {
+        "bg_mae": float(vals.mean()),
+        "bg_smear": float((vals > smear_thresh).mean()),
+    }
+
+
+def all_metrics(pred: np.ndarray, gt: np.ndarray) -> dict[str, float]:
+    """bg_mae/bg_smear are OMITTED (not NaN) for images with no measurable
+    pure-background region — per-image dicts stay NaN-free (valid strict JSON,
+    and dict-equality round-trips), aggregators must tolerate missing keys."""
+    result = {
         "sad": sad(pred, gt),
         "mae": mae(pred, gt),
         "mse": mse(pred, gt),
         "grad": grad_error(pred, gt),
         "conn": conn_error(pred, gt),
     }
+    result.update({k: v for k, v in bg_stats(pred, gt).items() if not np.isnan(v)})
+    return result
