@@ -26,7 +26,7 @@ yazılır. Yukarıdaki `-v hf-cache:...` volume'u sayesinde konteyner yeniden
 başlatıldığında tekrar indirme yapılmaz. Volume vermezseniz her yeni
 konteynerde model baştan iner (lucida ~1 GB).
 
-Not: `bgr-v1`...`lucida-v6` girdileri lokal checkpoint (`data/checkpoints/*.pth`)
+Not: `bgr-v1`...`lucida-v7` girdileri lokal checkpoint (`data/checkpoints/*.pth`)
 ister; bu dosyalar imajda yoktur. Konteynerde HF tabanlı modelleri kullanın:
 `lucida`, `birefnet-hr`, `rmbg-2.0`, `inspyrenet`.
 

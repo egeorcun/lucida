@@ -5,65 +5,75 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-2ea44f)](LICENSE)
 [![GitHub Stars](https://img.shields.io/github/stars/egeorcun/lucida?style=social)](https://github.com/egeorcun/lucida/stargazers)
 
-**Background removal that keeps what matters: glass, camouflage, text, glow and line art.**
+**Background removal that keeps what matters: glass, camouflage, text, glow, line art and print designs.**
 
 Lucida is a [BiRefNet](https://github.com/ZhengPeng7/BiRefNet)-based image matting model fine-tuned
 specifically for the cases where general-purpose background removers fall apart: semi-transparent
-objects, camouflaged subjects, logos and typography with soft shadows, glow/VFX effects, and
-illustrations. Weights are on Hugging Face: [egeorcun/lucida](https://huggingface.co/egeorcun/lucida) (MIT). **Try it in your browser (ZeroGPU, a few seconds per image): [live demo](https://huggingface.co/spaces/egeorcun/lucida-demo).**
+objects, camouflaged subjects, logos and typography with soft shadows, glow/VFX effects,
+illustrations, and print-style designs (stickers, tees). Weights are on Hugging Face: [egeorcun/lucida](https://huggingface.co/egeorcun/lucida) (MIT). **Try it in your browser (ZeroGPU, a few seconds per image): [live demo](https://huggingface.co/spaces/egeorcun/lucida-demo).**
 
 ## Benchmark
 
-191 images, 8 categories, MAE against ground-truth alpha (lower is better). Row leaders in **bold**.
+203 images, 9 categories, MAE against ground-truth alpha (lower is better). Row leaders in **bold**.
 Full methodology in [docs/benchmark.md](docs/benchmark.md); raw table snapshot in
 [docs/benchmark-results.md](docs/benchmark-results.md).
 
-| category (n) | lucida-v6 | inspyrenet | ideogram* | rmbg-2.0 | birefnet-hr |
+| category (n) | lucida-v7 | inspyrenet | ideogram* | rmbg-2.0 | birefnet-hr |
 |---|---|---|---|---|---|
-| camouflage (25) | **0.0249** | 0.0582 | 0.1179 | 0.1405 | 0.0752 |
-| transparent (25) | 0.0403 | 0.0725 | **0.0343** | 0.0741 | 0.0687 |
-| complex (29) | 0.0670 | **0.0110** | 0.1046 | 0.0241 | 0.0385 |
-| thin (36) | 0.0346 | **0.0166** | 0.0521 | 0.0180 | 0.0196 |
-| hair (40) | 0.0091 | 0.0069 | 0.0112 | **0.0045** | 0.0048 |
-| text (12) | **0.0112** | 0.0181 | 0.0123 | 0.0173 | 0.0207 |
-| fx (12)** | 0.0313 | 0.0269 | **0.0165** | 0.0268 | 0.0272 |
-| illustration (12) | **0.0089** | 0.0242 | 0.0215 | 0.0125 | 0.0157 |
-| OVERALL (191) | 0.0303 | **0.0277** | 0.0506 | 0.0396 | 0.0334 |
+| camouflage (25) | **0.0270** | 0.0582 | 0.1179 | 0.1405 | 0.0752 |
+| transparent (25) | 0.0358 | 0.0725 | **0.0343** | 0.0741 | 0.0687 |
+| complex (29) | 0.0484 | **0.0110** | 0.1046 | 0.0241 | 0.0385 |
+| thin (36) | 0.0322 | **0.0166** | 0.0521 | 0.0180 | 0.0196 |
+| hair (40) | 0.0093 | 0.0069 | 0.0112 | **0.0045** | 0.0048 |
+| text (12) | **0.0091** | 0.0181 | 0.0123 | 0.0173 | 0.0207 |
+| fx (12)** | 0.0180 | 0.0269 | **0.0165** | 0.0268 | 0.0272 |
+| illustration (12) | **0.0092** | 0.0242 | 0.0215 | 0.0125 | 0.0157 |
+| design (12)*** | **0.0235** | 0.0587 | 0.0518 | 0.0478 | 0.0544 |
+| OVERALL (203) | **0.0257** | 0.0295 | 0.0507 | 0.0401 | 0.0346 |
 
 \* *ideogram = [fal.ai Ideogram remove-background](https://fal.ai/models/fal-ai/ideogram/remove-background), a commercial API used as the quality reference.*
 
 \*\* *The fx test images and their ground truth come from the earlier (v4-era) synthetic generator; the fx recipe was reworked for v5 training, so this row is a conservative estimate for lucida-v5+.*
 
+\*\*\* *Synthetic print-design/sticker images (`scripts/make_design.py`), generated with seed 777 — a holdout fully disjoint from the seed-42 training data.*
+
 **What Lucida wins, honestly:**
 
-- **Camouflage:** 2.3x better than the best open competitor (0.0249 vs InSPyReNet 0.0582) and 4.7x
-  better than the commercial reference.
-- **Illustration:** ahead of every model measured, including the commercial reference
-  (0.0089 vs RMBG-2.0 0.0125, Ideogram 0.0215).
-- **Text/logos:** ahead of the commercial reference (0.0112 vs 0.0123) and of all
+- **Overall:** the lowest average error of every model measured — 0.0257 vs InSPyReNet 0.0295 —
+  the first Lucida release to lead the whole table, specialists and commercial reference included.
+- **Print design:** 0.0235, more than 2x better than every competitor (best open RMBG-2.0 0.0478,
+  commercial Ideogram 0.0518). This category exists because a Reddit user reported the failure
+  ([issue #2](https://github.com/egeorcun/lucida/issues/2)) — community feedback, fixed in v7.
+- **Camouflage:** more than 2x better than the best open competitor (0.0270 vs InSPyReNet 0.0582)
+  and 4.4x better than the commercial reference.
+- **Text/logos:** clearly ahead of the commercial reference (0.0091 vs 0.0123) and of all
   open models.
-- **Transparency:** best of the open models by a wide margin (0.0403 vs the next-best open 0.0687).
+- **Illustration:** ahead of every model measured, including the commercial reference
+  (0.0092 vs RMBG-2.0 0.0125, Ideogram 0.0215).
+- **Transparency:** best of the open models by a wide margin (0.0358 vs the next-best open 0.0687).
 
 **And what it loses, just as honestly:**
 
-- **Ideogram still leads transparency** (0.0343 vs our 0.0403). We closed most of the gap; not all of it.
+- **Ideogram still leads transparency** (0.0343 vs our 0.0358). The gap is down to 0.0015; not zero.
 - **InSPyReNet is the specialist for complex scenes and thin structures** (0.0110 / 0.0166 vs our
-  0.0670 / 0.0346) — those two categories are also why its overall average is lowest.
-- **RMBG-2.0 leads hair** (0.0045 vs our 0.0091), though absolute errors there are small for everyone.
+  0.0484 / 0.0322). Complex improved 28% over v6, but the gap stands.
+- **RMBG-2.0 leads hair** (0.0045 vs our 0.0093), though absolute errors there are small for everyone.
+- **Ideogram edges out fx** (0.0165 vs our 0.0180).
 
 If your workload is mostly multi-object product shots or wiry/perforated structures, InSPyReNet or
-RMBG-2.0 may serve you better. If it involves transparency, camouflage, typography, glow effects or
-illustrations, Lucida is the strongest open option we measured.
+RMBG-2.0 may serve you better. For everything else — transparency, camouflage, typography, glow
+effects, illustrations, print designs — and on the overall average, Lucida is the strongest option
+we measured.
 
 ## Examples
 
-Original | Lucida v5 (RGBA on a dark checkerboard) | competitor. MAE per image shown in the labels.
+Original | Lucida v7 (RGBA on a dark checkerboard) | competitor. MAE per image shown in the labels.
 
 **Camouflage** — body paint blended into magnolia petals; Lucida finds the subject, the runner-up keeps the whole image:
 
 ![Camouflage comparison: Lucida vs InSPyReNet](docs/assets/compare-camouflage.jpg)
 
-**Transparency** — glass demijohns; the interior stays semi-transparent instead of turning into an opaque blob (beating the commercial reference on this image):
+**Transparency** — glass demijohns; the interior stays semi-transparent instead of turning into an opaque blob:
 
 ![Transparency comparison: Lucida vs Ideogram](docs/assets/compare-transparent.jpg)
 
@@ -71,9 +81,13 @@ Original | Lucida v5 (RGBA on a dark checkerboard) | competitor. MAE per image s
 
 ![Text comparison: Lucida vs Ideogram](docs/assets/compare-text.jpg)
 
-**Illustration** — anime rider having a meal; Lucida beats the commercial reference 5x on this image:
+**Illustration** — anime rider having a meal; clean line-art edges where general-purpose models blur or halo:
 
 ![Illustration comparison: Lucida vs RMBG-2.0](docs/assets/compare-illustration.jpg)
+
+**Print design** — smoke edges and distressed display text; the category born from a community bug report:
+
+![Print design comparison: Lucida vs competitor](docs/assets/compare-design.jpg)
 
 ## Model
 
@@ -121,12 +135,12 @@ uv sync
 ### CLI
 
 ```bash
-uv run bgr remove input.jpg -o output.png --model lucida-v6
+uv run bgr remove input.jpg -o output.png --model lucida-v7
 ```
 
-- `--model` picks any entry from `bgr/registry.py` (`lucida-v6`, `rmbg-2.0` (default),
-  `birefnet-hr`, `inspyrenet`, ...). The `lucida-v6` entry loads a local checkpoint from
-  `data/checkpoints/epoch_6.pth` — download it from the
+- `--model` picks any entry from `bgr/registry.py` (`lucida-v7`, `rmbg-2.0` (default),
+  `birefnet-hr`, `inspyrenet`, ...). The `lucida-v7` entry loads a local checkpoint from
+  `data/checkpoints/epoch_7.pth` — download it from the
   [Hugging Face repo](https://huggingface.co/egeorcun/lucida) and place it there.
 - `--refine` enables the edge-refinement pass; `--no-decontaminate` disables color
   decontamination of the RGBA output.
@@ -138,11 +152,17 @@ uv run uvicorn serving.app:app --port 8756
 ```
 
 ```bash
-curl -F "file=@input.jpg" "http://localhost:8756/remove?model=lucida-v6" -o output.png
+curl -F "file=@input.jpg" "http://localhost:8756/remove?model=lucida-v7" -o output.png
 ```
 
 Query parameters: `model` (default `rmbg-2.0`), `refine` (bool), `decontaminate` (bool, default
 true). `GET /health` lists the available models.
+
+### ComfyUI
+
+Lucida is distributed in ComfyUI's official model collection,
+[Comfy-Org/BiRefNet](https://huggingface.co/Comfy-Org/BiRefNet). Download `lucida.safetensors`
+from there and place it in `ComfyUI/models/background_removal/`.
 
 ### Docker
 
@@ -150,12 +170,13 @@ See [docs/docker.md](docs/docker.md).
 
 ## How it was trained
 
-Lucida is a fine-tune of **BiRefNet_HR** (MIT) on **52,882 image/alpha pairs across 9 categories**
-(transparent, camouflage, complex, thin, hair, text, fx, illustration, general), trained on a single
-A100 40GB at 1024x1024, batch 2 x gradient-accumulation 4 (effective batch 8), bf16, using the
-official BiRefNet `Matting` task losses (BCE + MAE + SSIM). Five epochs — but not five passes of the
-same recipe; each epoch was benchmarked on the 191-image test set and the category sampling was
-re-calibrated before the next one:
+Lucida is a fine-tune of **BiRefNet_HR** (MIT), starting from **52,882 image/alpha pairs across
+9 categories** (transparent, camouflage, complex, thin, hair, text, fx, illustration, general —
+a tenth, design, was added for v7), trained on a single A100 40GB at 1024x1024, batch 2 x
+gradient-accumulation 4 (effective batch 8), bf16, using the official BiRefNet `Matting` task
+losses (BCE + MAE + SSIM). Seven epochs — but not seven passes of the same recipe; each epoch was
+benchmarked on the held-out test set (191 images through v6, 203 once the design category landed)
+and the data or the category sampling was re-calibrated before the next one:
 
 - **v1 — transparency + camouflage focus.** A `WeightedRandomSampler` pinned those two categories
   at 20% each of every epoch. Camouflage improved immediately, but everything else starved:
@@ -170,8 +191,21 @@ re-calibrated before the next one:
   (partial alpha on solid objects).
 - **v5 — ghosting fix + consolidation.** The fx generator was reworked (narrow halo band, short
   streaks, particles concentrated near the object), its share cut, and transparency/hair shares
-  restored. Final epoch-5 sampler shares: transparent .22, complex .19, camouflage .12, thin .12,
+  restored. Epoch-5 sampler shares: transparent .22, complex .19, camouflage .12, thin .12,
   hair .12, text .07, illustration .07, fx .05, general .04.
+- **v6 — community bug fixes ([issue #1](https://github.com/egeorcun/lucida/issues/1)).** Two
+  reported failure modes, fixed with derivative training copies (`scripts/make_v6_copies.py`):
+  edge-crops that cut 20-60% of the subject bounding box (~9k copies, so subjects touching the
+  frame stop getting erased) and mixed-opacity augments of transparent pairs (up to 4k copies, so
+  solid parts of transparent objects stop going semi-transparent).
+- **v7 — the design category ([issue #2](https://github.com/egeorcun/lucida/issues/2)).** A Reddit
+  user reported print-design/sticker images — halftone subjects, distressed display text, smoke
+  and glow melting into white — being erased or ghosted. A new synthetic generator
+  (`scripts/make_design.py`, ~6k pairs) and an 8% sampler share fixed it: design MAE went from
+  0.0479 (v6) to 0.0235, ahead of every competitor. Complex (0.0670 -> 0.0484) and fx
+  (0.0313 -> 0.0180) also improved over v6. Final epoch-7 sampler shares: transparent .22,
+  complex .19, thin .12, camouflage .10, hair .10, design .08, text .06, illustration .06,
+  fx .05, general .02.
 
 The full decision log lives in `training/train_colab_lib.py` (sampler preset docstrings) and
 `docs/reports/`.
@@ -197,15 +231,16 @@ regarding the research-only sources.
 | [BG-20k](https://github.com/JizhiziLi/GFM) | backgrounds | MIT (via release agreement) | Yes |
 | [ToonOut](https://huggingface.co/datasets/joelseytre/toonout) | illustration | **CC-BY 4.0** | Yes, with attribution |
 | Synthetic text/fx (this repo) | text / fx | MIT (`scripts/make_textfx.py`) | Yes |
+| Synthetic design (this repo) | design | MIT generator (`scripts/make_design.py`); foregrounds drawn from the sources above | inherits foreground-source licensing |
 
 ## Limitations
 
-- **Transparency:** the commercial reference (Ideogram) still leads, 0.0343 vs 0.0403 MAE.
+- **Transparency:** the commercial reference (Ideogram) still leads, 0.0343 vs 0.0358 MAE.
 - **Complex scenes and thin structures:** InSPyReNet's specialist advantage stands (0.0110/0.0166
-  vs our 0.0666/0.0350); RMBG-2.0 leads hair.
+  vs our 0.0484/0.0322); RMBG-2.0 leads hair.
 - **Semantic coherence:** subject selection on scenes with partially visible people or ambiguous
   multi-object layouts is not perfect — occasional dropped or extra parts.
-- **fx measurement:** the fx benchmark row is conservative for v5 (test GT from the older
+- **fx measurement:** the fx benchmark row is conservative for v5+ (test GT from the older
   generator, see the table footnote).
 
 ## License & citation
