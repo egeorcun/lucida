@@ -36,6 +36,11 @@ MODEL_SPECS: dict[str, dict] = {
         "arch_id": "ZhengPeng7/BiRefNet_HR",
         "input_size": 1024,
     },
+    "lucida-v7": {
+        "ckpt": "data/checkpoints/epoch_7.pth",
+        "arch_id": "ZhengPeng7/BiRefNet_HR",
+        "input_size": 1024,
+    },
 }
 
 _GATED_HELP = (
