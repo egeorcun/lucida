@@ -108,7 +108,14 @@ def test_sampler_preset_v1_matches_default_target_share():
 
 
 def test_sampler_presets_registry_has_v1_v2_v3_and_v4():
-    assert set(SAMPLER_PRESETS) == {"v1", "v2", "v3", "v4", "v5", "v7", "v8"}
+    assert set(SAMPLER_PRESETS) == {"v1", "v2", "v3", "v4", "v5", "v7", "v8", "v9"}
+    # v9: the alpha^2 retrain — hair trimmed back, the v8 regressions
+    # (complex/thin) restored, everything else held.
+    v9 = SAMPLER_PRESETS["v9"]
+    assert sum(v9.values()) == pytest.approx(1.0, abs=1e-9)
+    assert v9["hair"] == pytest.approx(0.14)
+    assert v9["complex"] > SAMPLER_PRESETS["v8"]["complex"]
+    assert v9["thin"] > SAMPLER_PRESETS["v8"]["thin"]
     assert SAMPLER_PRESETS["v1"] is SAMPLER_PRESET_V1
     assert SAMPLER_PRESETS["v2"] is SAMPLER_PRESET_V2
     assert SAMPLER_PRESETS["v3"] is SAMPLER_PRESET_V3

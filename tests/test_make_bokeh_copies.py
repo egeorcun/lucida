@@ -113,6 +113,42 @@ def test_render_large_image_downscaled_blur_path():
     assert float(diff.mean()) > 8.0
 
 
+def test_render_preserves_soft_wisp_brightness_no_alpha_squared():
+    """THE v8 REGRESSION TEST. A photograph's soft-edge pixels are already
+    the optical blend a*F + (1-a)*B; re-compositing the photo with its own
+    alpha dims wisps to a^2*F (the v8 bug — trained models learned to KEEP
+    faint fuzz, hair MAE 0.0093->0.0176). The fixed render must reproduce
+    ~a*F + (1-a)*bokeh at soft pixels.
+
+    Setup: white subject (F=230) over dark noisy bg (~B=40) with a vertical
+    alpha ramp band. The bokeh bg stays ~40 (blur of noise around 40), so at
+    a=0.5 the ideal output is ~0.5*230 + 0.5*40 = 135; the buggy render gave
+    ~0.5*(0.5*230+0.5*40) + 0.5*40 = 87.5 — far apart, cleanly separable."""
+    h, w = 200, 200
+    F, B = 230.0, 40.0
+    noise = np.random.default_rng(5)
+    bg_img = np.clip(noise.normal(B, 10, (h, w, 3)), 0, 80).astype(np.float32)
+    alpha = np.zeros((h, w), dtype=np.float32)
+    alpha[:, 120:] = 1.0
+    ramp = np.linspace(0.0, 1.0, 40, dtype=np.float32)
+    alpha[:, 80:120] = ramp[None, :]
+    photo = (alpha[..., None] * F + (1.0 - alpha[..., None]) * bg_img).round().clip(0, 255).astype(np.uint8)
+
+    out, _ = mbc.render_bokeh_copy(np.random.default_rng(0), photo, alpha)
+
+    soft = (alpha > 0.4) & (alpha < 0.6)
+    ideal = alpha[soft] * F + (1.0 - alpha[soft]) * B
+    got = out[soft].mean(axis=-1)
+    err_fixed = float(np.abs(got - ideal).mean())
+    # the buggy (alpha^2) render for reference
+    buggy = alpha[..., None] * photo.astype(np.float32) + (1.0 - alpha[..., None]) * B
+    err_buggy = float(np.abs(buggy[soft].mean(axis=-1) - ideal).mean())
+    assert err_buggy > 30.0  # the bug is large at a=0.5 (sanity of the setup)
+    assert err_fixed < 12.0, f"soft-wisp brightness off by {err_fixed:.1f} (alpha^2 bug back?)"
+    # interior must remain byte-exact original pixels
+    assert np.array_equal(out[:, 160:], photo[:, 160:])
+
+
 def test_render_keeps_alpha_object_identity():
     rng = np.random.default_rng(0)
     rgb = np.random.default_rng(1).integers(0, 256, (64, 64, 3), dtype=np.uint8)

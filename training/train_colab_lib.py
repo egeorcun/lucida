@@ -262,6 +262,35 @@ birefnet-hr 0.0003 — 20x). Changes vs v7:
    transparent stays the second-largest share (the Ideogram 0.0343 target is
    still open)."""
 
+SAMPLER_PRESET_V9: dict[str, float] = {
+    "camouflage": 0.12,
+    "transparent": 0.21,
+    "hair": 0.14,
+    "complex": 0.18,
+    "thin": 0.12,
+    "general": 0.02,
+    "text": 0.06,
+    "fx": 0.04,
+    "illustration": 0.05,
+    "design": 0.06,
+}
+"""v9 target (sums to EXACTLY 100%) — the epoch-8 retrain after the v8
+alpha^2 lesson. The v8 bokeh copies re-composited photos with their own
+alpha, dimming every soft wisp to alpha^2*F while the GT kept saying alpha —
+the model learned "keep faint fuzz" and hair REGRESSED (MAE 0.0093->0.0176,
+37/40 images worse; overall 0.0257->0.0287). The generator now composites
+`a*F_ext + (1-a)*bokeh` with an alpha-weighted foreground-color extension
+(validated: soft-band error vs pymatting-reference optics -40..45% on real
+P3M portraits; synthetic regression test in tests/test_make_bokeh_copies).
+
+Changes vs v8: **hair .16 -> .14** (the raise was sized for a clean
+counter-lesson; with ~1/3 of the hair pool being bokeh copies of existing
+sources, .14 limits duplicate-source exposure) and the freed share restores
+the two v8 regressions: **complex .17 -> .18, thin .11 -> .12**. Kept: camo
+.12 (v8 record 0.0235), fx .04 (v8 beat the commercial reference, 0.0162),
+design .06, transparent .21 (v8 record 0.0352). The training base is
+epoch_7 again — the alpha^2 epoch is discarded, not built upon."""
+
 SAMPLER_PRESETS: dict[str, dict[str, float]] = {
     "v1": SAMPLER_PRESET_V1,
     "v2": SAMPLER_PRESET_V2,
@@ -270,6 +299,7 @@ SAMPLER_PRESETS: dict[str, dict[str, float]] = {
     "v5": SAMPLER_PRESET_V5,
     "v7": SAMPLER_PRESET_V7,
     "v8": SAMPLER_PRESET_V8,
+    "v9": SAMPLER_PRESET_V9,
 }
 """The table the notebook's `SAMPLER_PRESET` parameter ("v1"/"v2"/"v3"/"v4")
 is resolved against — see the `training/train_colab.ipynb` parameters cell and

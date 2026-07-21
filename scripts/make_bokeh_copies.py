@@ -236,15 +236,47 @@ def _bokeh_background(
     return np.clip(blurred, 0.0, 255.0)
 
 
+def _estimate_foreground(rgb: np.ndarray, alpha: np.ndarray) -> np.ndarray:
+    """Cheap foreground-color estimate (H, W, 3 float in [0, 255]) via
+    alpha-weighted normalized convolution: F = G(rgb*a) / G(a) extends the
+    subject's colors outward across the soft band.
+
+    WHY THIS EXISTS (the v8 alpha^2 lesson, measured on the epoch-8 run): a
+    photograph's soft-edge pixels are ALREADY the optical blend
+    `a*F + (1-a)*B`. Re-compositing the photo itself with its own alpha
+    (`a*photo + (1-a)*new_bg`) dims every fur wisp to `a^2*F` — the training
+    images showed half-erased wisps while the GT kept saying `a`, teaching
+    the model "keep faint fuzzy regions" — the exact opposite of the intended
+    lesson (hair MAE 0.0093 -> 0.0176, 37/40 test images worse). The correct
+    composite is `a*F + (1-a)*new_bg` with F estimated here.
+
+    In the subject interior the normalized convolution would return a
+    neighborhood average (a local blur of the subject) — the caller must
+    blend back to the original pixels where alpha is high."""
+    h, w = alpha.shape
+    sigma = max(4.0, min(h, w) * 0.01)  # just wide enough to cover the soft edge band
+    num = ndimage.gaussian_filter(rgb.astype(np.float32) * alpha[..., None], (sigma, sigma, 0))
+    den = ndimage.gaussian_filter(alpha.astype(np.float32), sigma)
+    return np.clip(num / np.maximum(den, 1e-4)[..., None], 0.0, 255.0)
+
+
 def render_bokeh_copy(
     rng: np.random.Generator, rgb: np.ndarray, alpha: np.ndarray
 ) -> tuple[np.ndarray, np.ndarray]:
-    """(new RGB uint8, alpha UNCHANGED). The sharp subject is composited over
-    the defocused background with the original alpha as the matte — fur edges
-    keep their exact softness, the background becomes bokeh, the GT does not
-    move by a single byte (that is the lesson: bokeh/glow around fur = 0)."""
+    """(new RGB uint8, alpha UNCHANGED). The subject is composited over the
+    defocused background as `a*F + (1-a)*bokeh_bg`, where F is the estimated
+    foreground color (see _estimate_foreground — compositing the photo itself
+    would dim soft wisps by alpha^2, the v8 bug). F is only trusted in the
+    soft band: a smooth weight hands back the ORIGINAL pixels as alpha
+    approaches 1, so the subject interior stays byte-exact sharp. The GT does
+    not move by a single byte (the lesson: bokeh/glow around fur = 0)."""
     bg = _bokeh_background(rng, rgb, alpha)
-    out = alpha[..., None] * rgb.astype(np.float32) + (1.0 - alpha[..., None]) * bg
+    fg_ext = _estimate_foreground(rgb, alpha)
+    # w: 0 in the deep-soft band (use extended F), 1 from alpha>=0.9 (use the
+    # original pixels — they ARE the foreground there); smooth in between.
+    w = np.clip((alpha - 0.6) / 0.3, 0.0, 1.0)[..., None]
+    fg = w * rgb.astype(np.float32) + (1.0 - w) * fg_ext
+    out = alpha[..., None] * fg + (1.0 - alpha[..., None]) * bg
     return out.round().clip(0, 255).astype(np.uint8), alpha
 
 

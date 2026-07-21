@@ -41,6 +41,18 @@ MODEL_SPECS: dict[str, dict] = {
         "arch_id": "ZhengPeng7/BiRefNet_HR",
         "input_size": 1024,
     },
+    # v8 = the discarded alpha^2 epoch (kept for comparisons; see the
+    # SAMPLER_PRESET_V9 docstring in training/train_colab_lib.py).
+    "lucida-v8": {
+        "ckpt": "data/checkpoints/epoch_8_v8bug.pth",
+        "arch_id": "ZhengPeng7/BiRefNet_HR",
+        "input_size": 1024,
+    },
+    "lucida-v9": {
+        "ckpt": "data/checkpoints/epoch_8_v9.pth",
+        "arch_id": "ZhengPeng7/BiRefNet_HR",
+        "input_size": 1024,
+    },
 }
 
 _GATED_HELP = (
