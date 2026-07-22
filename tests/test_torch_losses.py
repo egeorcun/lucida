@@ -71,3 +71,50 @@ def test_shape_mismatch_raises():
     import pytest
     with pytest.raises(ValueError):
         bg_purity_loss(torch.zeros(1, 1, 8, 8), torch.zeros(1, 1, 9, 9))
+
+
+# ============================================================================
+# bg_hinge_loss — the v11 constant-gradient variant
+# ============================================================================
+from training.torch_losses import bg_hinge_loss  # noqa: E402
+
+
+def test_hinge_faint_haze_gets_constant_gradient():
+    """THE v10 LESSON: faint haze (p ~ 0.03, logit ~ -3.5) must receive the
+    SAME gradient magnitude as a strong blob — that is the whole point."""
+    gt = _square_gt()
+    faint = torch.full_like(gt, -3.5, requires_grad=True)
+    strong = torch.full_like(gt, -0.5, requires_grad=True)
+    bg_hinge_loss(faint, gt).backward()
+    bg_hinge_loss(strong, gt).backward()
+    g_faint = faint.grad[..., 0, 0].abs().item()
+    g_strong = strong.grad[..., 0, 0].abs().item()
+    assert g_faint > 0
+    assert abs(g_faint - g_strong) / g_strong < 1e-5  # constant, not p-proportional
+
+
+def test_hinge_below_threshold_costs_nothing():
+    gt = _square_gt()
+    logits = torch.full_like(gt, -12.0)  # p ~ 6e-6, far below tau_p=0.002
+    assert bg_hinge_loss(logits, gt).item() == 0.0
+
+
+def test_hinge_soft_edge_band_and_interior_exempt():
+    gt = _square_gt()
+    logits = torch.full_like(gt, -12.0)
+    logits[..., 15:49, 15:49] = 6.0  # subject + surrounding 5px band
+    assert bg_hinge_loss(logits, gt, erosion_px=11).item() < 1e-6
+
+
+def test_hinge_no_background_returns_zero():
+    gt = torch.ones(1, 1, 32, 32)
+    logits = torch.zeros(1, 1, 32, 32, requires_grad=True)
+    loss = bg_hinge_loss(logits, gt)
+    assert loss.item() == 0.0
+    loss.backward()
+
+
+def test_hinge_invalid_tau_raises():
+    import pytest
+    with pytest.raises(ValueError):
+        bg_hinge_loss(torch.zeros(1, 1, 8, 8), torch.zeros(1, 1, 8, 8), tau_p=0.0)
