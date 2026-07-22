@@ -277,8 +277,13 @@ def stage_drive_copy() -> None:
     post_im, post_gt = len(_listdir_retry(dst_im)), len(_listdir_retry(dst_gt))
     print(f"copy_pairs: {n_copied} pairs copied/overwritten; Drive TRAIN im {pre_im} -> {post_im}")
     assert post_im == post_gt, f"im/gt counts differ after merge: {post_im} != {post_gt}"
-    assert post_im == pre_im, (
-        f"TRAIN grew during a pure overwrite merge ({pre_im} -> {post_im}) — unexpected new stems"
+    # Growth is allowed up to len(stems): the 2026-07-22 recovery path DELETES
+    # the stale k00 targets first (Drive FUSE overwrites crawled at ~0.5
+    # pairs/s that night; fresh writes are ~25x faster), so the merge
+    # legitimately restores what was deleted. Shrinkage or growth beyond the
+    # k00 set still fails loudly.
+    assert pre_im <= post_im <= pre_im + len(stems), (
+        f"unexpected TRAIN count change ({pre_im} -> {post_im}, k00 set={len(stems)})"
     )
     report("drive_copy", "done", overwritten=n_copied, total_im=post_im)
 
