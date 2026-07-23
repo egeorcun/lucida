@@ -228,6 +228,117 @@ illustration .07->.06 (0.0089, ahead of everyone), general .04->.02.
 transparent (.22 — the Ideogram 0.0343 target is still open) and
 complex/thin/fx UNCHANGED."""
 
+SAMPLER_PRESET_V8: dict[str, float] = {
+    "camouflage": 0.12,
+    "transparent": 0.21,
+    "hair": 0.16,
+    "complex": 0.17,
+    "thin": 0.11,
+    "general": 0.02,
+    "text": 0.06,
+    "fx": 0.04,
+    "illustration": 0.05,
+    "design": 0.06,
+}
+"""v8 target (sums to EXACTLY 100%) — the background-purity epoch (HF
+discussion #1, the cat masks: gray smears in the background on real photos
+with furry subjects; measured bg_mae in the hair category: v7 0.0069 vs
+birefnet-hr 0.0003 — 20x). Changes vs v7:
+
+1. **hair .10 -> .16**: the category where the residue lives; the pool also
+   gains ~9,000 bokeh hard-negative copies (make_bokeh_copies.py — defocused
+   backgrounds + bright orbs whose GT is exactly 0), so the raised share is
+   spent directly on the counter-lesson.
+2. **fx .05 -> .04, design .08 -> .06**: both categories carry
+   semi-transparent GT (glow/smoke) — the source of the "keep the faint haze"
+   prior that over-generalizes to real photos. Their targets are comfortably
+   met (fx 0.0180, design 0.0235 — 2x every rival), so the shares are trimmed;
+   the design pool itself is also regenerated with the fixed generator
+   (compact glow support + no glow under the text bands).
+3. **camo .10 -> .12**: recover the v7 regression (0.0249 -> 0.0270).
+4. **transparent .22 -> .21, complex .19 -> .17, thin .12 -> .11,
+   illustration .06 -> .05**: small trims to fund the hair raise — each
+   remains at or above the share that produced its current score, and
+   transparent stays the second-largest share (the Ideogram 0.0343 target is
+   still open)."""
+
+SAMPLER_PRESET_V9: dict[str, float] = {
+    "camouflage": 0.12,
+    "transparent": 0.21,
+    "hair": 0.14,
+    "complex": 0.18,
+    "thin": 0.12,
+    "general": 0.02,
+    "text": 0.06,
+    "fx": 0.04,
+    "illustration": 0.05,
+    "design": 0.06,
+}
+"""v9 target (sums to EXACTLY 100%) — the epoch-8 retrain after the v8
+alpha^2 lesson. The v8 bokeh copies re-composited photos with their own
+alpha, dimming every soft wisp to alpha^2*F while the GT kept saying alpha —
+the model learned "keep faint fuzz" and hair REGRESSED (MAE 0.0093->0.0176,
+37/40 images worse; overall 0.0257->0.0287). The generator now composites
+`a*F_ext + (1-a)*bokeh` with an alpha-weighted foreground-color extension
+(validated: soft-band error vs pymatting-reference optics -40..45% on real
+P3M portraits; synthetic regression test in tests/test_make_bokeh_copies).
+
+Changes vs v8: **hair .16 -> .14** (the raise was sized for a clean
+counter-lesson; with ~1/3 of the hair pool being bokeh copies of existing
+sources, .14 limits duplicate-source exposure) and the freed share restores
+the two v8 regressions: **complex .17 -> .18, thin .11 -> .12**. Kept: camo
+.12 (v8 record 0.0235), fx .04 (v8 beat the commercial reference, 0.0162),
+design .06, transparent .21 (v8 record 0.0352). The training base is
+epoch_7 again — the alpha^2 epoch is discarded, not built upon."""
+
+SAMPLER_PRESET_V10: dict[str, float] = {
+    "camouflage": 0.12,
+    "transparent": 0.21,
+    "hair": 0.13,
+    "complex": 0.19,
+    "thin": 0.12,
+    "general": 0.02,
+    "text": 0.06,
+    "fx": 0.04,
+    "illustration": 0.05,
+    "design": 0.06,
+}
+"""v10 target (sums to EXACTLY 100%) — the background-purity-LOSS epoch,
+trained ON TOP of v9's healthy epoch_8. v9 delivered the transparency
+milestone (0.0338 — the commercial reference finally beaten) and camo/text
+records, but the release bar is explicit: no release while the real-photo
+background haze persists (hair bg_mae 0.0070 vs birefnet 0.0003 — flat
+across v5..v9 despite two data-side fixes) and while complex sits below v7
+(0.0527 vs 0.0484). The smear attack moves to the LOSS level
+(training/torch_losses.bg_purity_loss, notebook BG_PURITY_LAMBDA);
+share-wise: **complex .18 -> .19** (the v7 level that scored 0.0484) funded
+by **hair .14 -> .13** (hair is at parity and the smear fix no longer rides
+on the sampler). Everything else held from v9."""
+
+SAMPLER_PRESET_V12: dict[str, float] = {
+    "camouflage": 0.12,
+    "transparent": 0.21,
+    "hair": 0.14,
+    "complex": 0.19,
+    "thin": 0.12,
+    "general": 0.02,
+    "text": 0.06,
+    "fx": 0.04,
+    "illustration": 0.04,
+    "design": 0.06,
+}
+"""v12 target (sums to EXACTLY 100%) — the CATEGORY-GATED hinge epoch, on
+top of v11's epoch_11. The unmasked hinge passed two release-bar criteria
+(complex 0.0445, transparent 0.0341) and produced the best overall
+background purity (bg_mae 0.00597, -38% vs v7), but it crushed fx
+(0.0180 -> 0.0308) and hair MAE slipped (0.0108): the pressure was landing
+on glow surroundings too. v12 gates the hinge per sample by the GT's
+soft-alpha ratio (see torch_losses.bg_hinge_loss max_soft_ratio) so the
+synthetic semi-transparent categories are exempt while every photo category
+keeps (doubled) pressure. Shares: **hair .13 -> .14** (repair the MAE slip)
+funded by illustration .05 -> .04 (0.0070 — a robust 2x lead); complex .19
+kept (the bar-passing level)."""
+
 SAMPLER_PRESETS: dict[str, dict[str, float]] = {
     "v1": SAMPLER_PRESET_V1,
     "v2": SAMPLER_PRESET_V2,
@@ -235,6 +346,10 @@ SAMPLER_PRESETS: dict[str, dict[str, float]] = {
     "v4": SAMPLER_PRESET_V4,
     "v5": SAMPLER_PRESET_V5,
     "v7": SAMPLER_PRESET_V7,
+    "v8": SAMPLER_PRESET_V8,
+    "v9": SAMPLER_PRESET_V9,
+    "v10": SAMPLER_PRESET_V10,
+    "v12": SAMPLER_PRESET_V12,
 }
 """The table the notebook's `SAMPLER_PRESET` parameter ("v1"/"v2"/"v3"/"v4")
 is resolved against — see the `training/train_colab.ipynb` parameters cell and

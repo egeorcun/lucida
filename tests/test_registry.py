@@ -10,7 +10,8 @@ from bgr.registry import MODEL_SPECS, get_segmenter
 def test_known_model_names():
     assert set(MODEL_SPECS) == {
         "birefnet-hr", "rmbg-2.0", "bgr-v1", "bgr-v2", "bgr-v3", "bgr-v4",
-        "lucida-v5", "lucida-v6", "lucida-v7", "inspyrenet", "lucida",
+        "lucida-v5", "lucida-v6", "lucida-v7", "lucida-v8", "lucida-v9", "lucida-v10", "lucida-v11", "lucida-v11probe", "lucida-v12", "lucida-v13", "lucida-soup", "lucida-soup913", "lucida-soup91113",
+        "inspyrenet", "lucida",
     }
 
 

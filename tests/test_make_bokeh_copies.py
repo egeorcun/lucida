@@ -1,0 +1,205 @@
+"""scripts/make_bokeh_copies.py — the v8 bokeh hard-negative generator.
+
+What matters here:
+- the GT of a bokeh copy is BYTE-IDENTICAL to the source GT (the whole point:
+  a defocused/glowing background around a furry subject is still exactly 0),
+- the subject interior keeps its original pixels, the background actually
+  changes (it is blurred),
+- selection: only the requested categories; _e/_m/_k derivatives and VAL
+  stems are never sources; GTs without enough background are skipped,
+- determinism / idempotency / resume follow the make_v6_copies contracts.
+"""
+import importlib.util
+import json
+import sys
+from pathlib import Path
+
+import numpy as np
+import pytest
+from PIL import Image
+
+_SPEC = importlib.util.spec_from_file_location(
+    "make_bokeh_copies",
+    Path(__file__).parent.parent / "scripts" / "make_bokeh_copies.py",
+)
+mbc = importlib.util.module_from_spec(_SPEC)
+sys.modules.setdefault("make_bokeh_copies", mbc)
+_SPEC.loader.exec_module(mbc)
+
+SIZE = (96, 96)
+
+
+def _write_pair(im_dir: Path, gt_dir: Path, stem: str, noise_seed: int = 0) -> None:
+    """A noisy-background pair: the subject square is solid, the background is
+    random noise (a flat background would make the blur a no-op)."""
+    rng = np.random.default_rng(noise_seed)
+    rgb = rng.integers(0, 256, (*SIZE, 3), dtype=np.uint8)
+    rgb[24:72, 24:72] = (0, 180, 60)
+    a = np.zeros(SIZE, dtype=np.uint8)
+    a[24:72, 24:72] = 255
+    im_dir.mkdir(parents=True, exist_ok=True)
+    gt_dir.mkdir(parents=True, exist_ok=True)
+    Image.fromarray(rgb, mode="RGB").save(im_dir / f"{stem}.jpg", format="JPEG", quality=92)
+    Image.fromarray(a, mode="L").save(gt_dir / f"{stem}.png")
+
+
+@pytest.fixture
+def env(tmp_path):
+    im_dir = tmp_path / "TRAIN" / "im"
+    gt_dir = tmp_path / "TRAIN" / "gt"
+    cats: dict[str, str] = {}
+    for i in range(3):
+        stem = f"p3m_hair_{i:03d}"
+        _write_pair(im_dir, gt_dir, stem, noise_seed=i)
+        cats[stem] = "hair"
+    _write_pair(im_dir, gt_dir, "disvd_thing_000", noise_seed=7)
+    cats["disvd_thing_000"] = "complex"  # not in the default categories
+    _write_pair(im_dir, gt_dir, "p3m_hair_900_e00", noise_seed=8)
+    cats["p3m_hair_900_e00"] = "hair"  # derivative -> never a source
+    return {"im": im_dir, "gt": gt_dir, "cats": cats, "out": tmp_path / "out"}
+
+
+def _run(env, **kw):
+    return mbc.run(env["im"], env["gt"], env["cats"], env["out"], seed=42, count=100, **kw)
+
+
+def _manifest_rows(out_dir: Path) -> list[dict]:
+    path = out_dir / "manifest.jsonl"
+    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+
+
+def test_run_generates_hair_copies_only(env):
+    result = _run(env)
+    assert result == {"bokeh": 3}
+    rows = _manifest_rows(env["out"])
+    assert {r["id"] for r in rows} == {f"p3m_hair_{i:03d}_k00" for i in range(3)}
+    assert all(r["category"] == "hair" for r in rows)
+
+
+def test_gt_byte_identical_and_bg_actually_blurred(env):
+    _run(env)
+    for i in range(3):
+        stem = f"p3m_hair_{i:03d}"
+        src_gt = (env["gt"] / f"{stem}.png").read_bytes()
+        out_gt = (env["out"] / "gt" / f"{stem}_k00.png").read_bytes()
+        assert out_gt == src_gt, "the bokeh copy's GT must not move by a byte"
+
+        src = np.asarray(Image.open(env["im"] / f"{stem}.jpg").convert("RGB"), dtype=np.int16)
+        out = np.asarray(
+            Image.open(env["out"] / "im" / f"{stem}_k00.jpg").convert("RGB"), dtype=np.int16
+        )
+        # subject interior (away from the matte edge): pixels essentially intact
+        assert float(np.abs(out[30:66, 30:66] - src[30:66, 30:66]).mean()) < 4.0
+        # background: the noise must be visibly smoothed
+        assert float(np.abs(out[:20, :] - src[:20, :]).mean()) > 8.0
+
+
+def test_render_large_image_downscaled_blur_path():
+    """scale > 1 (WORK_MIN_SIDE optimization): the GT contract and the
+    subject-interior fidelity hold on large images too, where the background
+    layer is computed at working resolution and upscaled."""
+    rng = np.random.default_rng(3)
+    noise = np.random.default_rng(4)
+    rgb = noise.integers(0, 256, (1400, 1400, 3), dtype=np.uint8)
+    rgb[400:1000, 400:1000] = (0, 180, 60)
+    alpha = np.zeros((1400, 1400), dtype=np.float32)
+    alpha[400:1000, 400:1000] = 1.0
+    out_rgb, out_alpha = mbc.render_bokeh_copy(rng, rgb, alpha)
+    assert out_alpha is alpha
+    # interior intact (alpha==1 -> exact original pixels)
+    assert np.array_equal(out_rgb[500:900, 500:900], rgb[500:900, 500:900])
+    # background noise visibly smoothed
+    diff = np.abs(out_rgb[:300, :].astype(np.int16) - rgb[:300, :].astype(np.int16))
+    assert float(diff.mean()) > 8.0
+
+
+def test_render_preserves_soft_wisp_brightness_no_alpha_squared():
+    """THE v8 REGRESSION TEST. A photograph's soft-edge pixels are already
+    the optical blend a*F + (1-a)*B; re-compositing the photo with its own
+    alpha dims wisps to a^2*F (the v8 bug — trained models learned to KEEP
+    faint fuzz, hair MAE 0.0093->0.0176). The fixed render must reproduce
+    ~a*F + (1-a)*bokeh at soft pixels.
+
+    Setup: white subject (F=230) over dark noisy bg (~B=40) with a vertical
+    alpha ramp band. The bokeh bg stays ~40 (blur of noise around 40), so at
+    a=0.5 the ideal output is ~0.5*230 + 0.5*40 = 135; the buggy render gave
+    ~0.5*(0.5*230+0.5*40) + 0.5*40 = 87.5 — far apart, cleanly separable."""
+    h, w = 200, 200
+    F, B = 230.0, 40.0
+    noise = np.random.default_rng(5)
+    bg_img = np.clip(noise.normal(B, 10, (h, w, 3)), 0, 80).astype(np.float32)
+    alpha = np.zeros((h, w), dtype=np.float32)
+    alpha[:, 120:] = 1.0
+    ramp = np.linspace(0.0, 1.0, 40, dtype=np.float32)
+    alpha[:, 80:120] = ramp[None, :]
+    photo = (alpha[..., None] * F + (1.0 - alpha[..., None]) * bg_img).round().clip(0, 255).astype(np.uint8)
+
+    out, _ = mbc.render_bokeh_copy(np.random.default_rng(0), photo, alpha)
+
+    soft = (alpha > 0.4) & (alpha < 0.6)
+    ideal = alpha[soft] * F + (1.0 - alpha[soft]) * B
+    got = out[soft].mean(axis=-1)
+    err_fixed = float(np.abs(got - ideal).mean())
+    # the buggy (alpha^2) render for reference
+    buggy = alpha[..., None] * photo.astype(np.float32) + (1.0 - alpha[..., None]) * B
+    err_buggy = float(np.abs(buggy[soft].mean(axis=-1) - ideal).mean())
+    assert err_buggy > 30.0  # the bug is large at a=0.5 (sanity of the setup)
+    assert err_fixed < 12.0, f"soft-wisp brightness off by {err_fixed:.1f} (alpha^2 bug back?)"
+    # interior must remain byte-exact original pixels
+    assert np.array_equal(out[:, 160:], photo[:, 160:])
+
+
+def test_render_keeps_alpha_object_identity():
+    rng = np.random.default_rng(0)
+    rgb = np.random.default_rng(1).integers(0, 256, (64, 64, 3), dtype=np.uint8)
+    alpha = np.zeros((64, 64), dtype=np.float32)
+    alpha[16:48, 16:48] = 1.0
+    _, out_alpha = mbc.render_bokeh_copy(rng, rgb, alpha)
+    assert out_alpha is alpha  # unchanged, not even copied
+
+
+def test_ineligible_sources_skipped(env, tmp_path):
+    """A GT without enough background (subject fills the frame) is skipped."""
+    stem = "p3m_hair_full"
+    rgb = np.random.default_rng(9).integers(0, 256, (*SIZE, 3), dtype=np.uint8)
+    Image.fromarray(rgb, mode="RGB").save(env["im"] / f"{stem}.jpg", quality=92)
+    Image.fromarray(np.full(SIZE, 255, dtype=np.uint8), mode="L").save(env["gt"] / f"{stem}.png")
+    env["cats"][stem] = "hair"
+    result = _run(env)
+    assert result == {"bokeh": 3}  # the frame-filling GT did not become a source
+
+
+def test_exclude_stems_val_guard(env):
+    result = _run(env, exclude_stems={"p3m_hair_001"})
+    assert result == {"bokeh": 2}
+    ids = {r["id"] for r in _manifest_rows(env["out"])}
+    assert "p3m_hair_001_k00" not in ids
+
+
+def test_deterministic_same_seed_bit_identical(env, tmp_path):
+    _run(env, out_manifest=None)
+    out2 = tmp_path / "out2"
+    mbc.run(env["im"], env["gt"], env["cats"], out2, seed=42, count=100)
+    for i in range(3):
+        stem = f"p3m_hair_{i:03d}_k00"
+        assert (env["out"] / "im" / f"{stem}.jpg").read_bytes() == (out2 / "im" / f"{stem}.jpg").read_bytes()
+        assert (env["out"] / "gt" / f"{stem}.png").read_bytes() == (out2 / "gt" / f"{stem}.png").read_bytes()
+
+
+def test_idempotent_rerun_writes_nothing_new(env):
+    _run(env)
+    mtimes = {p: p.stat().st_mtime_ns for p in (env["out"] / "im").iterdir()}
+    result = _run(env)
+    assert result == {}
+    assert len(_manifest_rows(env["out"])) == 3  # no duplicated manifest lines
+    for p, t in mtimes.items():
+        assert p.stat().st_mtime_ns == t, f"{p.name} was regenerated"
+
+
+def test_resume_completes_missing_manifest_line(env):
+    _run(env)
+    manifest = env["out"] / "manifest.jsonl"
+    rows = _manifest_rows(env["out"])
+    manifest.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows[1:]))
+    _run(env)
+    assert {r["id"] for r in _manifest_rows(env["out"])} == {r["id"] for r in rows}
