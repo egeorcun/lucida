@@ -58,6 +58,26 @@ MODEL_SPECS: dict[str, dict] = {
         "arch_id": "ZhengPeng7/BiRefNet_HR",
         "input_size": 1024,
     },
+    "lucida-soup913": {
+        "ckpt": "data/checkpoints/soup_9_13.pth",
+        "arch_id": "ZhengPeng7/BiRefNet_HR",
+        "input_size": 1024,
+    },
+    "lucida-soup91113": {
+        "ckpt": "data/checkpoints/soup_9_11_13.pth",
+        "arch_id": "ZhengPeng7/BiRefNet_HR",
+        "input_size": 1024,
+    },
+    "lucida-soup": {
+        "ckpt": "data/checkpoints/soup_11_12_13.pth",
+        "arch_id": "ZhengPeng7/BiRefNet_HR",
+        "input_size": 1024,
+    },
+    "lucida-v13": {
+        "ckpt": "data/checkpoints/epoch_13.pth",
+        "arch_id": "ZhengPeng7/BiRefNet_HR",
+        "input_size": 1024,
+    },
     "lucida-v12": {
         "ckpt": "data/checkpoints/epoch_12.pth",
         "arch_id": "ZhengPeng7/BiRefNet_HR",
