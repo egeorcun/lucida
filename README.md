@@ -168,7 +168,16 @@ true). `GET /health` lists the available models.
 
 Lucida is distributed in ComfyUI's official model collection,
 [Comfy-Org/BiRefNet](https://huggingface.co/Comfy-Org/BiRefNet). Download `lucida.safetensors`
-from there and place it in `ComfyUI/models/background_removal/`.
+from there and place it in `ComfyUI/models/background_removal/`. Note the bundled copy can lag
+behind releases — for the newest weights, download
+[`model.safetensors`](https://huggingface.co/egeorcun/lucida/resolve/main/model.safetensors) and
+save it under the same name.
+
+A ready-made workflow is included:
+[`docs/comfyui/lucida_remove_background.json`](docs/comfyui/lucida_remove_background.json) —
+drag it onto the ComfyUI canvas (or Workflow → Open). It is the official
+"Remove Background (BiRefNet)" template wired to Lucida: Load Image → Remove Background
+subgraph (`LoadBackgroundRemovalModel` + `RemoveBackground`) → transparent RGBA + mask preview.
 
 ### Docker
 
