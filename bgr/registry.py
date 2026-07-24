@@ -78,6 +78,11 @@ MODEL_SPECS: dict[str, dict] = {
         "arch_id": "ZhengPeng7/BiRefNet_HR",
         "input_size": 1024,
     },
+    "lucida-v14": {
+        "ckpt": "data/checkpoints/epoch_14.pth",
+        "arch_id": "ZhengPeng7/BiRefNet_HR",
+        "input_size": 1024,
+    },
     "lucida-v12": {
         "ckpt": "data/checkpoints/epoch_12.pth",
         "arch_id": "ZhengPeng7/BiRefNet_HR",

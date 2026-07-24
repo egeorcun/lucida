@@ -366,6 +366,31 @@ synthetic design .04 each) — sized so no photo category loses more than
 new pairs' hard-0 photo backdrops receive it, which is exactly the
 design-intent lesson."""
 
+SAMPLER_PRESET_V15: dict[str, float] = {
+    "camouflage": 0.12,
+    "transparent": 0.20,
+    "hair": 0.15,
+    "complex": 0.17,
+    "thin": 0.12,
+    "general": 0.02,
+    "text": 0.06,
+    "fx": 0.04,
+    "illustration": 0.04,
+    "design": 0.04,
+    "design_real": 0.04,
+}
+"""v15 target (sums to EXACTLY 100%) — the CONSOLIDATION epoch on top of
+v14's epoch_14. v14's 8% design_real share delivered the breakthrough
+(design_real MAE 0.34 -> 0.11, ~4x ahead of every rival; the cat photos at
+their all-time best) but the reallocation cost the photo categories in one
+epoch: hair 0.0093 -> 0.0150, camo 0.0270 -> 0.0299, text/fx/thin slipped.
+The lesson is now IN the weights — v15 halves design_real to 4% (enough
+in-epoch presence to retain it; the v6/v7 pattern showed capabilities hold
+at reduced share) and returns the freed points to the bruised photo
+categories: **hair .13 -> .15, camo .11 -> .12, thin .11 -> .12**. Success
+bar: design_real <= 0.13, hair/camo/text back at v7 levels, cats stay
+clean."""
+
 SAMPLER_PRESETS: dict[str, dict[str, float]] = {
     "v1": SAMPLER_PRESET_V1,
     "v2": SAMPLER_PRESET_V2,
@@ -378,6 +403,7 @@ SAMPLER_PRESETS: dict[str, dict[str, float]] = {
     "v10": SAMPLER_PRESET_V10,
     "v12": SAMPLER_PRESET_V12,
     "v14": SAMPLER_PRESET_V14,
+    "v15": SAMPLER_PRESET_V15,
 }
 """The table the notebook's `SAMPLER_PRESET` parameter ("v1"/"v2"/"v3"/"v4")
 is resolved against — see the `training/train_colab.ipynb` parameters cell and
