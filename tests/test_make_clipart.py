@@ -48,6 +48,19 @@ def svg_dir(tmp_path):
     return d
 
 
+def test_svg_usable_filter(tmp_path):
+    ok = tmp_path / "ok.svg"
+    ok.write_text(_CIRCLE)
+    ext = tmp_path / "ext.svg"
+    ext.write_text('<svg xmlns="http://www.w3.org/2000/svg">'
+                   '<image xlink:href="http://example.com/x.png"/></svg>')
+    big = tmp_path / "big.svg"
+    big.write_text(_CIRCLE + "<!--" + "x" * (mcl.MAX_SVG_BYTES + 1) + "-->")
+    assert mcl._svg_usable(ok)
+    assert not mcl._svg_usable(ext)   # external fetch = the Colab hang
+    assert not mcl._svg_usable(big)
+
+
 def test_svg_renders_to_exact_alpha():
     rgb, a = mcl.render_svg_rgba(_CIRCLE, out_width=200)
     assert a.shape == (200, 200)

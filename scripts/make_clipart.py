@@ -26,6 +26,8 @@ import argparse
 import hashlib
 import io
 import json
+import signal
+from contextlib import contextmanager
 from pathlib import Path
 
 import numpy as np
@@ -42,6 +44,42 @@ ELEMENTS = (3, 6)
 ELEMENT_FRAC = (0.18, 0.55)      # element long side / canvas short side
 WHITE_BG_SHARE = 0.35
 MARGIN_FRAC = 0.03
+MAX_SVG_BYTES = 300_000
+RENDER_TIMEOUT_S = 10
+# External refs make cairosvg do NETWORK FETCHES (no timeout — the Colab
+# hang of 2026-07-24: 49 min without a single progress line); <image> tags
+# embed rasters we don't want in "vector" GT anyway.
+_BAD_MARKERS = (b"<image", b'href="http', b"href='http")
+
+
+def _svg_usable(p: Path) -> bool:
+    """Cheap, deterministic pre-filter: size cap + no external/raster refs."""
+    try:
+        if p.stat().st_size > MAX_SVG_BYTES:
+            return False
+        data = p.read_bytes().lower()
+    except OSError:
+        return False
+    return not any(m in data for m in _BAD_MARKERS)
+
+
+@contextmanager
+def _time_limit(seconds: float):
+    """SIGALRM-based hard timeout (main thread only; no-op elsewhere) —
+    the backstop for pathological SVGs the pre-filter can't predict."""
+    def _raise(signum, frame):
+        raise TimeoutError("svg render timed out")
+    try:
+        old = signal.signal(signal.SIGALRM, _raise)
+        signal.setitimer(signal.ITIMER_REAL, seconds)
+    except ValueError:  # not in main thread
+        yield
+        return
+    try:
+        yield
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, old)
 
 
 def _item_rng(seed: int, key: str) -> np.random.Generator:
@@ -105,9 +143,12 @@ def render_clipart_sample(
         target = int(min(w, h) * rng.uniform(*ELEMENT_FRAC))
         angle = float(rng.uniform(-25, 25))
         try:
-            rgb_el, a_el = render_svg_rgba(Path(p).read_text(errors="ignore"), out_width=target)
+            with _time_limit(RENDER_TIMEOUT_S):
+                rgb_el, a_el = render_svg_rgba(Path(p).read_text(errors="ignore"), out_width=target)
         except Exception:
-            continue  # broken SVG: rng draws already consumed -> deterministic
+            continue  # broken/slow SVG: rng draws already consumed -> deterministic
+        if a_el.shape[0] > 5000 or a_el.shape[0] > 8 * max(1, a_el.shape[1]):
+            continue  # extreme aspect ratio rastered into a monster
         el = Image.fromarray(
             np.dstack([rgb_el, a_el[..., None] * 255]).astype(np.uint8), mode="RGBA")
         el = el.rotate(angle, expand=True, resample=Image.BICUBIC, fillcolor=(0, 0, 0, 0))
@@ -131,8 +172,11 @@ def run(out_dir: Path, svg_dir: Path, count: int = DEFAULT_COUNT, seed: int = 33
     out_dir = Path(out_dir)
     (out_dir / "im").mkdir(parents=True, exist_ok=True)
     (out_dir / "gt").mkdir(parents=True, exist_ok=True)
-    svg_paths = sorted(p for p in Path(svg_dir).rglob("*.svg"))
-    assert svg_paths, f"no SVGs in {svg_dir}"
+    all_svgs = sorted(p for p in Path(svg_dir).rglob("*.svg"))
+    svg_paths = [p for p in all_svgs if _svg_usable(p)]
+    print(f"svg pool: {len(svg_paths)} usable / {len(all_svgs)} total "
+          f"(dropped: >|{MAX_SVG_BYTES // 1000}KB, external refs, <image>)")
+    assert svg_paths, f"no usable SVGs in {svg_dir}"
 
     rows, generated, skipped = [], 0, 0
     for i in range(count):
@@ -147,7 +191,7 @@ def run(out_dir: Path, svg_dir: Path, count: int = DEFAULT_COUNT, seed: int = 33
         rgb, gt = render_clipart_sample(rng, svg_paths, white_bg_share=white_bg_share)
         _save_pair(rgb, gt, im_p, gt_p)
         generated += 1
-        if generated % 250 == 0:
+        if generated % 100 == 0:
             print(f"clipart progress: {generated}/{count - skipped} generated")
 
     with open(out_dir / "manifest.jsonl", "w") as f:
