@@ -20,7 +20,10 @@ import numpy as np
 import pytest
 from PIL import Image
 
-pytest.importorskip("cairosvg")
+try:
+    import cairosvg  # noqa: F401
+except Exception:  # OSError when libcairo is missing — importorskip only catches ImportError
+    pytest.skip("cairosvg/libcairo unavailable on this system", allow_module_level=True)
 
 _SPEC = importlib.util.spec_from_file_location(
     "make_clipart", Path(__file__).parent.parent / "scripts" / "make_clipart.py")
