@@ -63,6 +63,8 @@ def bg_hinge_loss(
     tau_p: float = 0.002,
     erosion_px: int = 11,
     max_soft_ratio: float | None = None,
+    hard_erosion_px: int | None = None,
+    hard_soft_ratio: float = 0.01,
 ) -> torch.Tensor:
     """Hinge penalty over the ERODED true-background region:
     mean(relu(logit - logit(tau_p))).
@@ -88,16 +90,29 @@ def bg_hinge_loss(
     threshold are EXEMPTED per-sample: at 0.03 that is exactly the synthetic
     semi-transparent categories (transparent ~19%, design ~15%, fx ~7-17%,
     text ~11% soft) while every photo category keeps the pressure (hair
-    ~1.4%, camo/complex/thin ~0%). None disables the gating."""
+    ~1.4%, camo/complex/thin ~0%). None disables the gating.
+
+    `hard_erosion_px` (Lucida Design, the SALE-bloom lesson): the 11px
+    protective band exists for legitimate soft edges (fur, glass) — but on
+    hard-edged art (vector/typography/design GT, soft ratio ~0) that band is
+    a sanctuary for edge-hugging white bloom. Samples whose GT soft-alpha
+    ratio is <= `hard_soft_ratio` use the tight `hard_erosion_px` band so
+    the penalty reaches the boundary; samples with real softness keep
+    `erosion_px`. None disables the adaptation (backward compatible)."""
     if pred_logits.shape != gt.shape:
         raise ValueError(f"shape mismatch: {tuple(pred_logits.shape)} vs {tuple(gt.shape)}")
     if not 0.0 < tau_p < 1.0:
         raise ValueError(f"tau_p must be in (0, 1), got {tau_p}")
+    gt_f = gt.float()
+    soft = ((gt_f > 0.05) & (gt_f < 0.95)).float()
+    soft_ratio = soft.mean(dim=(-3, -2, -1))  # per sample
+
     bg = _eroded_bg_mask(gt, erosion_px)
+    if hard_erosion_px is not None:
+        bg_tight = _eroded_bg_mask(gt, hard_erosion_px)
+        hard = (soft_ratio <= hard_soft_ratio).view(-1, 1, 1, 1)
+        bg = torch.where(hard, bg_tight, bg)
     if max_soft_ratio is not None:
-        gt_f = gt.float()
-        soft = ((gt_f > 0.05) & (gt_f < 0.95)).float()
-        soft_ratio = soft.mean(dim=(-3, -2, -1))  # per sample
         keep = (soft_ratio <= max_soft_ratio).float().view(-1, 1, 1, 1)
         bg = bg * keep
     n_bg = bg.sum()

@@ -143,3 +143,51 @@ def test_hinge_all_samples_soft_returns_zero():
     loss = bg_hinge_loss(logits, gt, max_soft_ratio=0.03)
     assert loss.item() == 0.0
     loss.backward()
+
+
+# ============================================================================
+# Adaptive erosion band — the SALE-bloom lesson (Lucida Design spec)
+# ============================================================================
+def _residue_at_5px(gt):
+    """Faint residue ring placed ~5px outside the subject: inside the wide
+    11px protective band, outside the tight 3px one."""
+    logits = torch.full_like(gt, -12.0)
+    fg = (gt > 0).float()
+    d5 = torch.nn.functional.max_pool2d(fg, kernel_size=11, stride=1, padding=5)
+    d3 = torch.nn.functional.max_pool2d(fg, kernel_size=7, stride=1, padding=3)
+    ring = (d5 - d3).clamp(0, 1)  # pixels 4-5px from the subject
+    return torch.where(ring > 0, torch.tensor(-1.0), logits)  # p~0.27 bloom there
+
+
+def test_hard_edged_sample_gets_tight_band():
+    """Vector-art GT (binary): bloom hugging the edge (5px out) MUST cost."""
+    gt = _square_gt()
+    logits = _residue_at_5px(gt).requires_grad_(True)
+    loss = bg_hinge_loss(logits, gt, hard_erosion_px=3, hard_soft_ratio=0.01)
+    assert loss.item() > 0.01, "edge-hugging bloom escaped the tight band"
+    loss.backward()
+    assert logits.grad.abs().sum().item() > 0
+
+
+def test_soft_sample_keeps_wide_band():
+    """Photo-like GT (soft edge ring): the same 5px residue must stay exempt."""
+    gt = _square_gt()
+    # soft transition ring around the square -> sample counts as soft-edged
+    gt[..., 18:20, 20:44] = 0.5
+    gt[..., 44:46, 20:44] = 0.5
+    logits = _residue_at_5px(gt)
+    loss = bg_hinge_loss(logits, gt, hard_erosion_px=3, hard_soft_ratio=0.01)
+    assert loss.item() < 1e-4, "soft sample lost its protective band"
+
+
+def test_mixed_batch_bands_apply_per_sample():
+    hard = _square_gt()
+    soft = _square_gt()
+    soft[..., 18:20, 20:44] = 0.5
+    soft[..., 44:46, 20:44] = 0.5
+    gt = torch.cat([hard, soft], dim=0)
+    logits = torch.cat([_residue_at_5px(hard), _residue_at_5px(soft)], dim=0).requires_grad_(True)
+    loss = bg_hinge_loss(logits, gt, hard_erosion_px=3, hard_soft_ratio=0.01)
+    loss.backward()
+    assert logits.grad[0].abs().sum().item() > 0    # hard sample pressured
+    assert logits.grad[1].abs().sum().item() == 0.0  # soft sample exempt
