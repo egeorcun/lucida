@@ -4,6 +4,10 @@ import json
 CATEGORIES = {
     "hair", "transparent", "thin", "product", "complex", "illustration",
     "general", "camouflage", "text", "fx", "design",
+    # real layered-design artwork (Crello templates, exact layer GT) — the
+    # v13 blind spot; lives in its own manifest (data/testset_design_real),
+    # the frozen 203-image set is untouched. See scripts/make_design_real.py.
+    "design_real",
 }
 _KEYS = {"id", "image", "category", "gt_alpha"}
 
