@@ -391,6 +391,32 @@ categories: **hair .13 -> .15, camo .11 -> .12, thin .11 -> .12**. Success
 bar: design_real <= 0.13, hair/camo/text back at v7 levels, cats stay
 clean."""
 
+SAMPLER_PRESET_V16: dict[str, float] = {
+    "design_real": 0.22,
+    "typography": 0.16,
+    "clipart": 0.10,
+    "transparent": 0.14,
+    "complex": 0.12,
+    "illustration": 0.08,
+    "design": 0.06,
+    "text": 0.06,
+    "fx": 0.03,
+    "hair": 0.01,
+    "camouflage": 0.01,
+    "thin": 0.005,
+    "general": 0.005,
+}
+"""v16 target (sums to EXACTLY 100%) — the LUCIDA DESIGN campaign (spec:
+docs/superpowers/specs/2026-07-24-lucida-design-expert.md). This is a
+DESIGN-EXPERT model: photo categories may regress freely (the model card
+says "use Lucida for photographs"); their residual 3% exists only for
+graceful degradation. New categories: `typography` (make_typography.py —
+exact counter GT from font geometry, the CHEESE lesson), `clipart`
+(make_clipart.py — pixel-exact SVG alpha, white-on-white over-represented,
+the Stay Fresh lesson). design_real expands to ~11.5k Crello pairs. The
+recipe is FIXED for the whole staged campaign (1024 -> 1024 -> 1536); the
+hinge runs with the adaptive erosion band (hard-edged GT: 3px)."""
+
 SAMPLER_PRESETS: dict[str, dict[str, float]] = {
     "v1": SAMPLER_PRESET_V1,
     "v2": SAMPLER_PRESET_V2,
@@ -404,6 +430,7 @@ SAMPLER_PRESETS: dict[str, dict[str, float]] = {
     "v12": SAMPLER_PRESET_V12,
     "v14": SAMPLER_PRESET_V14,
     "v15": SAMPLER_PRESET_V15,
+    "v16": SAMPLER_PRESET_V16,
 }
 """The table the notebook's `SAMPLER_PRESET` parameter ("v1"/"v2"/"v3"/"v4")
 is resolved against — see the `training/train_colab.ipynb` parameters cell and

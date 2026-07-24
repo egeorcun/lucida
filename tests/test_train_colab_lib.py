@@ -108,7 +108,13 @@ def test_sampler_preset_v1_matches_default_target_share():
 
 
 def test_sampler_presets_registry_has_v1_v2_v3_and_v4():
-    assert set(SAMPLER_PRESETS) == {"v1", "v2", "v3", "v4", "v5", "v7", "v8", "v9", "v10", "v12", "v14", "v15"}
+    assert set(SAMPLER_PRESETS) == {"v1", "v2", "v3", "v4", "v5", "v7", "v8", "v9", "v10", "v12", "v14", "v15", "v16"}
+    v16 = SAMPLER_PRESETS["v16"]
+    assert sum(v16.values()) == pytest.approx(1.0, abs=1e-9)
+    assert v16["design_real"] == pytest.approx(0.22)
+    assert v16["typography"] == pytest.approx(0.16)
+    assert v16["clipart"] == pytest.approx(0.10)
+    assert v16["hair"] + v16["camouflage"] + v16["thin"] + v16["general"] == pytest.approx(0.03)
     assert SAMPLER_PRESETS["v15"]["design_real"] == pytest.approx(0.04)
     assert SAMPLER_PRESETS["v15"]["hair"] == pytest.approx(0.15)
     assert sum(SAMPLER_PRESETS["v15"].values()) == pytest.approx(1.0, abs=1e-9)

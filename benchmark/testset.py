@@ -8,6 +8,8 @@ CATEGORIES = {
     # v13 blind spot; lives in its own manifest (data/testset_design_real),
     # the frozen 203-image set is untouched. See scripts/make_design_real.py.
     "design_real",
+    # Lucida Design training/holdout categories (font-exact and SVG-exact GT)
+    "typography", "clipart",
 }
 _KEYS = {"id", "image", "category", "gt_alpha"}
 
