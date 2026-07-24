@@ -1,4 +1,8 @@
-# Lucida v13 comparison (203 images, MAE — lower is better)
+# Lucida comparison (203 images, MAE — lower is better)
+
+> **Note:** the v13 column documents an experimental checkpoint that was briefly published and
+> then reverted — it regressed on real-world layered artwork that this synthetic-design test set
+> does not cover. The released weights are v7.
 
 Source: `results/baseline/metrics.json` (`per_category` section), 2026-07 v13 run.
 The released v13 weights are the uniform checkpoint soup of the lineage's epoch-8 (v9)

@@ -18,18 +18,18 @@ illustrations, and print-style designs (stickers, tees). Weights are on Hugging 
 Full methodology in [docs/benchmark.md](docs/benchmark.md); raw table snapshot in
 [docs/benchmark-results.md](docs/benchmark-results.md).
 
-| category (n) | lucida-v13 | inspyrenet | ideogram* | rmbg-2.0 | birefnet-hr |
+| category (n) | lucida-v7 | inspyrenet | ideogram* | rmbg-2.0 | birefnet-hr |
 |---|---|---|---|---|---|
-| camouflage (25) | **0.0227** | 0.0582 | 0.1179 | 0.1405 | 0.0752 |
-| transparent (25) | **0.0338** | 0.0725 | 0.0343 | 0.0741 | 0.0687 |
-| complex (29) | 0.0465 | **0.0110** | 0.1046 | 0.0241 | 0.0385 |
-| thin (36) | 0.0321 | **0.0166** | 0.0521 | 0.0180 | 0.0196 |
+| camouflage (25) | **0.0270** | 0.0582 | 0.1179 | 0.1405 | 0.0752 |
+| transparent (25) | 0.0358 | 0.0725 | **0.0343** | 0.0741 | 0.0687 |
+| complex (29) | 0.0484 | **0.0110** | 0.1046 | 0.0241 | 0.0385 |
+| thin (36) | 0.0322 | **0.0166** | 0.0521 | 0.0180 | 0.0196 |
 | hair (40) | 0.0093 | 0.0069 | 0.0112 | **0.0045** | 0.0048 |
-| text (12) | **0.0103** | 0.0181 | 0.0123 | 0.0173 | 0.0207 |
-| fx (12)** | 0.0211 | 0.0269 | **0.0165** | 0.0268 | 0.0272 |
-| illustration (12) | **0.0082** | 0.0242 | 0.0215 | 0.0125 | 0.0157 |
-| design (12)*** | **0.0254** | 0.0587 | 0.0518 | 0.0478 | 0.0544 |
-| OVERALL (203) | **0.0250** | 0.0295 | 0.0507 | 0.0401 | 0.0346 |
+| text (12) | **0.0091** | 0.0181 | 0.0123 | 0.0173 | 0.0207 |
+| fx (12)** | 0.0180 | 0.0269 | **0.0165** | 0.0268 | 0.0272 |
+| illustration (12) | **0.0092** | 0.0242 | 0.0215 | 0.0125 | 0.0157 |
+| design (12)*** | **0.0235** | 0.0587 | 0.0518 | 0.0478 | 0.0544 |
+| OVERALL (203) | **0.0257** | 0.0295 | 0.0507 | 0.0401 | 0.0346 |
 
 \* *ideogram = [fal.ai Ideogram remove-background](https://fal.ai/models/fal-ai/ideogram/remove-background), a commercial API used as the quality reference.*
 
@@ -39,31 +39,26 @@ Full methodology in [docs/benchmark.md](docs/benchmark.md); raw table snapshot i
 
 **What Lucida wins, honestly:**
 
-- **Overall:** the lowest average error of every model measured — 0.0250 vs InSPyReNet 0.0295 —
-  leading the whole table, specialists and commercial reference included.
-- **Transparency:** for the first time ahead of the commercial reference too (0.0338 vs
-  Ideogram 0.0343) — and far ahead of every open model (next-best open 0.0687).
-- **Print design:** 0.0254, roughly 2x better than every competitor (best open RMBG-2.0 0.0478,
+- **Overall:** the lowest average error of every model measured — 0.0257 vs InSPyReNet 0.0295 —
+  the first Lucida release to lead the whole table, specialists and commercial reference included.
+- **Print design:** 0.0235, more than 2x better than every competitor (best open RMBG-2.0 0.0478,
   commercial Ideogram 0.0518). This category exists because a Reddit user reported the failure
   ([issue #2](https://github.com/egeorcun/lucida/issues/2)) — community feedback, fixed in v7.
-- **Camouflage:** more than 2.5x better than the best open competitor (0.0227 vs InSPyReNet 0.0582)
-  and 5x better than the commercial reference.
-- **Text/logos:** ahead of the commercial reference (0.0103 vs 0.0123) and of all open models.
+- **Camouflage:** more than 2x better than the best open competitor (0.0270 vs InSPyReNet 0.0582)
+  and 4.4x better than the commercial reference.
+- **Text/logos:** clearly ahead of the commercial reference (0.0091 vs 0.0123) and of all
+  open models.
 - **Illustration:** ahead of every model measured, including the commercial reference
-  (0.0082 vs RMBG-2.0 0.0125, Ideogram 0.0215).
-- **Background purity:** real-photo background haze — the main community complaint against
-  earlier versions — is measurably reduced (mean residue over pure-background regions: 0.0091
-  vs 0.0096 in v7 overall, with the faint-haze share cut the most).
+  (0.0092 vs RMBG-2.0 0.0125, Ideogram 0.0215).
+- **Transparency:** best of the open models by a wide margin (0.0358 vs the next-best open 0.0687).
 
 **And what it loses, just as honestly:**
 
+- **Ideogram still leads transparency** (0.0343 vs our 0.0358). The gap is down to 0.0015; not zero.
 - **InSPyReNet is the specialist for complex scenes and thin structures** (0.0110 / 0.0166 vs our
-  0.0465 / 0.0321). Complex improved again over v7, but the gap stands.
+  0.0484 / 0.0322). Complex improved 28% over v6, but the gap stands.
 - **RMBG-2.0 leads hair** (0.0045 vs our 0.0093), though absolute errors there are small for everyone.
-- **Ideogram leads fx** (0.0165 vs our 0.0211) — the background-purity training traded a little
-  glow fidelity, documented in the training story below.
-- **Occasional isolated low-alpha blobs** can still appear on busy real-photo backgrounds; reduced
-  versus v7, not eliminated.
+- **Ideogram edges out fx** (0.0165 vs our 0.0180).
 
 If your workload is mostly multi-object product shots or wiry/perforated structures, InSPyReNet or
 RMBG-2.0 may serve you better. For everything else — transparency, camouflage, typography, glow
@@ -73,7 +68,6 @@ we measured.
 ## Examples
 
 Original | Lucida (RGBA on a dark checkerboard) | competitor. MAE per image shown in the labels.
-(Collages below were rendered with the v7 weights; the current release scores equal or better on every image shown.)
 
 **Camouflage** — body paint blended into magnolia petals; Lucida finds the subject, the runner-up keeps the whole image:
 
@@ -235,6 +229,13 @@ and the data or the category sampling was re-calibrated before the next one:
   for the first time (0.0358 -> 0.0338 vs Ideogram 0.0343), with hair held exactly at v7's level.
   The traded ground: fx 0.0180 -> 0.0211 and text 0.0091 -> 0.0103 (both still ahead of the
   commercial reference), design 0.0235 -> 0.0254 (still ~2x ahead of everyone).
+  **Postscript:** shortly after release, community testing surfaced a regression the benchmark
+  had missed — on real-world layered artwork (poster/collage-style illustrations) v13 erases or
+  fades design elements that v7 correctly kept, because our synthetic design test set does not
+  cover that distribution. The published weights were reverted to v7, and v14 is in progress with
+  real layered-design training data (Crello templates, CC0 vector art) and a matching real-design
+  benchmark category.
+
 
 The full decision log lives in `training/train_colab_lib.py` (sampler preset docstrings) and
 `docs/reports/`.
