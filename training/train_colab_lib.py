@@ -339,6 +339,33 @@ keeps (doubled) pressure. Shares: **hair .13 -> .14** (repair the MAE slip)
 funded by illustration .05 -> .04 (0.0070 — a robust 2x lead); complex .19
 kept (the bar-passing level)."""
 
+SAMPLER_PRESET_V14: dict[str, float] = {
+    "camouflage": 0.11,
+    "transparent": 0.20,
+    "hair": 0.13,
+    "complex": 0.17,
+    "thin": 0.11,
+    "general": 0.02,
+    "text": 0.06,
+    "fx": 0.04,
+    "illustration": 0.04,
+    "design": 0.04,
+    "design_real": 0.08,
+}
+"""v14 target (sums to EXACTLY 100%) — the REAL layered-design epoch, on top
+of v13's epoch_13. The new `design_real` category (~8k pairs composited from
+cyberagent/crello templates with EXACT layer ground truth — see
+scripts/make_design_real.py) attacks the category where EVERY measured model
+collapses (design_real MAE: our best 0.32, birefnet 0.39, inspyrenet 0.40,
+even the commercial reference 0.41 because it keeps photo backdrops): erase
+only the backdrop, keep cards/text/decorations OPAQUE. Its 8% share is
+funded by small trims across the board (camo .12->.11, transparent
+.21->.20, hair .14->.13, complex .19->.17, thin .12->.11, illustration and
+synthetic design .04 each) — sized so no photo category loses more than
+~2 points. The background-purity hinge stays gated at 0.12/lambda 3; the
+new pairs' hard-0 photo backdrops receive it, which is exactly the
+design-intent lesson."""
+
 SAMPLER_PRESETS: dict[str, dict[str, float]] = {
     "v1": SAMPLER_PRESET_V1,
     "v2": SAMPLER_PRESET_V2,
@@ -350,6 +377,7 @@ SAMPLER_PRESETS: dict[str, dict[str, float]] = {
     "v9": SAMPLER_PRESET_V9,
     "v10": SAMPLER_PRESET_V10,
     "v12": SAMPLER_PRESET_V12,
+    "v14": SAMPLER_PRESET_V14,
 }
 """The table the notebook's `SAMPLER_PRESET` parameter ("v1"/"v2"/"v3"/"v4")
 is resolved against — see the `training/train_colab.ipynb` parameters cell and

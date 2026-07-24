@@ -142,7 +142,13 @@ def render_template(ex: dict) -> tuple[np.ndarray, np.ndarray] | None:
     return comp.round().clip(0, 255).astype(np.uint8), gt
 
 
-def run(out_dir: Path, count: int = 16, seed: int = 7, split: str = "test") -> int:
+def run(out_dir: Path, count: int = 16, seed: int = 7, split: str = "test",
+        quality: int = 95) -> int:
+    """Resume-safe: existing im+gt pairs are skipped (Colab session drops must
+    not restart hours of work); the manifest is rebuilt at the end from the
+    outputs actually on disk. Progress prints every 250 accepted pairs (the
+    v8 lesson: a multi-hour silent stage is indistinguishable from a hung
+    one)."""
     from datasets import load_dataset
 
     out_dir = Path(out_dir)
@@ -151,27 +157,37 @@ def run(out_dir: Path, count: int = 16, seed: int = 7, split: str = "test") -> i
     ds = load_dataset("cyberagent/crello", split=split)
     order = np.random.default_rng(seed).permutation(len(ds))
 
-    rows, taken, scanned = [], 0, 0
+    rows, taken, scanned, skipped = [], 0, 0, 0
     for idx in order:
         if taken >= count:
             break
         scanned += 1
         ex = ds[int(idx)]
+        stem = f"crello_{ex['id']}"
+        im_p = out_dir / "im" / f"{stem}.jpg"
+        gt_p = out_dir / "gt" / f"{stem}.png"
+        if im_p.exists() and gt_p.exists():
+            rows.append({"id": stem, "image": str(im_p), "category": "design_real",
+                         "gt_alpha": str(gt_p)})
+            taken += 1
+            skipped += 1
+            continue
         result = render_template(ex)
         if result is None:
             continue
         comp, gt = result
-        stem = f"crello_{ex['id']}"
-        Image.fromarray(comp).save(out_dir / "im" / f"{stem}.jpg", quality=95)
-        Image.fromarray(np.round(gt * 255).astype(np.uint8), mode="L").save(out_dir / "gt" / f"{stem}.png")
-        rows.append({"id": stem, "image": str(out_dir / "im" / f"{stem}.jpg"),
-                     "category": "design_real", "gt_alpha": str(out_dir / "gt" / f"{stem}.png")})
+        Image.fromarray(comp).save(im_p, quality=quality)
+        Image.fromarray(np.round(gt * 255).astype(np.uint8), mode="L").save(gt_p)
+        rows.append({"id": stem, "image": str(im_p), "category": "design_real",
+                     "gt_alpha": str(gt_p)})
         taken += 1
+        if taken % 250 == 0:
+            print(f"design_real progress: {taken}/{count} (scanned {scanned})")
 
     with open(out_dir / "manifest.jsonl", "w") as f:
         for r in rows:
             f.write(json.dumps(r, ensure_ascii=False) + "\n")
-    print(f"{taken} pairs written (scanned {scanned} templates) -> {out_dir}")
+    print(f"{taken} pairs ready ({skipped} pre-existing, scanned {scanned}) -> {out_dir}")
     return taken
 
 
