@@ -126,14 +126,15 @@ def stage_tar_fetch() -> int:
 def stage_fonts() -> int:
     report("fonts", "running")
     FONT_DIR.mkdir(parents=True, exist_ok=True)
+    import ast
     v16 = Path(WORKDIR) / "training" / "v16_data_update_cell.py"
-    ns: dict = {}
-    src = v16.read_text()
-    marker = "GOOGLE_FONT_PATHS = ["
-    start = src.index(marker)
-    end = src.index("]", start) + 1
-    exec(src[start:end], ns)  # only the list literal
-    paths = ns["GOOGLE_FONT_PATHS"]
+    paths = None
+    for node in ast.walk(ast.parse(v16.read_text())):
+        if (isinstance(node, ast.Assign)
+                and getattr(node.targets[0], "id", "") == "GOOGLE_FONT_PATHS"):
+            paths = ast.literal_eval(node.value)
+            break
+    assert paths, "GOOGLE_FONT_PATHS not found in the v16 cell"
     raw = "https://raw.githubusercontent.com/google/fonts/main/"
     done = failed = 0
     for rel in paths:
