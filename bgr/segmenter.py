@@ -12,6 +12,8 @@ from torchvision import transforms
 
 
 def get_device() -> torch.device:
+    if torch.cuda.is_available():  # Colab A100 — 2026-07-25: benchmark ran on CPU without this
+        return torch.device("cuda")
     return torch.device("mps" if torch.backends.mps.is_available() else "cpu")
 
 
