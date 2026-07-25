@@ -89,6 +89,57 @@ def test_distress_never_touches_gt(font_dir):
     assert not np.array_equal(a_rgb, b_rgb), "distress must visibly change the RGB"
 
 
+def test_outlined_gt_is_fill_plus_stroke(font_dir):
+    """The real Stay Fresh lesson: the stroke belongs to the letter. At block
+    level the union mask must be a strict superset of the fill mask, and a
+    full outlined render keeps its counters."""
+    from PIL import ImageFont
+    font = ImageFont.truetype(str(font_dir / "test_font.ttf"), 220)
+    fill, union = mty._render_line("STAY", font, stroke_px=12)
+    af = np.asarray(fill)[..., 3] > 128
+    au = np.asarray(union)[..., 3] > 128
+    assert au.sum() > af.sum() * 1.10, "stroke must add real area"
+    assert not (af & ~au).any(), "fill must be contained in fill+stroke"
+
+    _, gt_out = mty.render_typography_sample(
+        np.random.default_rng(11), np.random.default_rng(12),
+        [font_dir / "test_font.ttf"], bg_images=[],
+        force_text="BOOB", force_bg="flat", force_distress=False, force_crop=False,
+        outline_menu=True, force_outline=True, force_fill_eq_bg=False)
+    assert _enclosed_zero_regions(gt_out) >= 2, "counters survive the stroke"
+
+
+def test_fill_eq_bg_kept_in_gt(font_dir):
+    """Fill color == page color: only the stroke separates letters from the
+    page — the fill must still be FULLY opaque in the GT."""
+    layout_rng = np.random.default_rng(21)
+    fx_rng = np.random.default_rng(22)
+    rgb, gt = mty.render_typography_sample(
+        layout_rng, fx_rng, [font_dir / "test_font.ttf"], bg_images=[],
+        force_text="FRESH", force_distress=False, force_crop=False,
+        outline_menu=True, force_outline=True, force_fill_eq_bg=True)
+    page = np.asarray(rgb, np.float32)[0, 0]          # corner = page color
+    inner = (gt > 0.99)
+    rgbf = np.asarray(rgb, np.float32)
+    # some GT-opaque pixel is INDISTINGUISHABLE from the page (the fill)...
+    match = inner & (np.abs(rgbf - page).max(-1) < 3)
+    assert match.mean() > 0.005, "page-colored fill must exist inside the GT"
+    # ...and some GT-opaque pixel is clearly darker (the stroke)
+    dark = inner & (np.abs(rgbf - page).max(-1) > 60)
+    assert dark.mean() > 0.002, "a contrasting stroke must exist"
+
+
+def test_outline_menu_off_is_bit_identical_to_legacy(font_dir):
+    """outline_menu=False consumes no extra rng draws — old stems stay put."""
+    fonts = [font_dir / "test_font.ttf"]
+    a_rgb, a_gt = mty.render_typography_sample(
+        np.random.default_rng(31), np.random.default_rng(32), fonts, bg_images=[])
+    b_rgb, b_gt = mty.render_typography_sample(
+        np.random.default_rng(31), np.random.default_rng(32), fonts, bg_images=[],
+        outline_menu=False)
+    assert np.array_equal(a_rgb, b_rgb) and np.array_equal(a_gt, b_gt)
+
+
 @pytest.fixture
 def env(tmp_path, font_dir):
     return {"out": tmp_path / "out", "fonts": font_dir}
