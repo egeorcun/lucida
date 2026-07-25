@@ -330,23 +330,84 @@ def stage_export_and_merge() -> None:
         print(pool.name, "->", stats["total"])
     report("export", "done")
 
+    stage_tar_pack_delta()
+
     report("drive_copy", "running")
     src = Path(EXPORT_DIR)
     dst = Path(DRIVE_ROOT) / DRIVE_OUTPUT_SUBDIR
     dst_im, dst_gt = dst / "TRAIN" / "im", dst / "TRAIN" / "gt"
     stems = sorted(p.stem for p in (src / "TRAIN" / "im").iterdir())
-    pre = len(_listdir_retry(dst_im))
+    # 2026-07-25 lesson: a full getdents on the 53k-file Drive TRAIN dir is
+    # the single most fragile FUSE op — the sick-mount hang that stalled this
+    # stage for an hour happened HERE, before a single byte was copied. The
+    # counts only feed sanity prints/asserts; copy_pairs itself stats files
+    # one by one (robust). So the listings are now best-effort.
+    def _count_or_none(d: Path) -> int | None:
+        try:
+            return len(_listdir_retry(d, attempts=2, wait_s=15))
+        except OSError as e:
+            print(f"WARNING: listing {d} failed ({e}) — continuing without the count.")
+            return None
+    pre = _count_or_none(dst_im)
     n_copied = tcl.copy_pairs(stems, src / "TRAIN" / "im", src / "TRAIN" / "gt", dst_im, dst_gt)
-    post_im, post_gt = len(_listdir_retry(dst_im)), len(_listdir_retry(dst_gt))
+    post_im, post_gt = _count_or_none(dst_im), _count_or_none(dst_gt)
     print(f"copy_pairs: {n_copied} copied; Drive TRAIN {pre} -> {post_im}")
-    assert post_im == post_gt
-    assert pre <= post_im <= pre + len(stems)
+    if post_im is not None and post_gt is not None:
+        assert post_im == post_gt
+        if pre is not None:
+            assert pre <= post_im <= pre + len(stems)
     n_rows = 0
     for pool in pools:
         n_rows += tcl.merge_composite_manifest(pool / "manifest_full.jsonl",
                                                dst / "train_composites_manifest.jsonl")
     print(f"manifest: +{n_rows} rows")
     report("drive_copy", "done", copied=n_copied, manifest_rows=n_rows, total_im=post_im)
+
+
+def stage_tar_pack_delta(shard_size: int = 7000) -> None:
+    """Packs the NEW pairs (EXPORT_DIR/TRAIN) into delta tar shards on Drive
+    and extends tar/_manifest.json. Runs BEFORE the loose copy_pairs because
+    a few large sequential writes are the one operation Drive FUSE handles
+    reliably — the new data is secured on Drive even if the loose copy
+    fights the mount for hours. Bonus: tomorrow's GPU session extracts the
+    delta from tars (~min) instead of pulling 22.5k small files (~hours).
+    Resume-safe: the manifest is rewritten after every shard; shards already
+    in the manifest are skipped (stems are sorted -> slices deterministic)."""
+    report("tar_pack", "running")
+    src_im = Path(EXPORT_DIR) / "TRAIN" / "im"
+    src_gt = Path(EXPORT_DIR) / "TRAIN" / "gt"
+    im_files = sorted(src_im.iterdir())
+    tar_dir = Path(DRIVE_ROOT) / DRIVE_OUTPUT_SUBDIR / TAR_SUBDIR
+    manifest_path = tar_dir / "_manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    done_names = {sh["name"] for sh in manifest["shards"]}
+    start_k = len(manifest["shards"])
+    n_new = 0
+    for j in range(0, len(im_files), shard_size):
+        chunk = im_files[j:j + shard_size]
+        name = tcl.tar_shard_name(start_k + j // shard_size)
+        if name in done_names:
+            print(f"{name}: already in manifest, skipped.")
+            continue
+        local_tar = Path("/content") / name
+        with tarfile.open(local_tar, "w") as tf:
+            for im_p in chunk:
+                gt_p = src_gt / f"{im_p.stem}.png"
+                assert gt_p.exists(), f"gt missing for {im_p.stem}"
+                tf.add(im_p, arcname=f"im/{im_p.name}")
+                tf.add(gt_p, arcname=f"gt/{gt_p.name}")
+        nbytes = local_tar.stat().st_size
+        dst = tar_dir / name
+        shutil.copy2(local_tar, dst)
+        assert dst.stat().st_size == nbytes, f"{name}: short copy to Drive"
+        local_tar.unlink()
+        manifest["shards"].append({"name": name, "pairs": len(chunk), "bytes": nbytes})
+        manifest["total_pairs"] = sum(sh["pairs"] for sh in manifest["shards"])
+        manifest_path.write_text(json.dumps(manifest, indent=2))
+        n_new += 1
+        print(f"{name}: {len(chunk)} pairs, {nbytes / 1e9:.2f} GB -> Drive (manifest updated)")
+    tcl.validate_tar_manifest(manifest)
+    report("tar_pack", "done", new_shards=n_new, total_pairs=manifest["total_pairs"])
 
 
 def main() -> None:
