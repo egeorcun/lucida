@@ -57,6 +57,71 @@ def _eroded_bg_mask(gt: torch.Tensor, erosion_px: int) -> torch.Tensor:
     return 1.0 - dilated_fg
 
 
+def _eroded_fg_mask(gt: torch.Tensor, erosion_px: int) -> torch.Tensor:
+    """Pure-opaque interior: gt >= 0.999 eroded by `erosion_px` (min-pool via
+    max-pool of the complement) — the mirror of _eroded_bg_mask."""
+    fg = (gt >= 0.999).float()
+    pad = erosion_px // 2
+    eroded = -F.max_pool2d(-fg, kernel_size=erosion_px, stride=1, padding=pad)
+    if eroded.shape[-2:] != gt.shape[-2:]:
+        eroded = eroded[..., : gt.shape[-2], : gt.shape[-1]]
+    return eroded.clamp(min=0.0)
+
+
+def fg_hinge_loss(
+    pred_logits: torch.Tensor,
+    gt: torch.Tensor,
+    tau_p: float = 0.998,
+    erosion_px: int = 11,
+    max_soft_ratio: float | None = None,
+    hard_erosion_px: int | None = None,
+    hard_soft_ratio: float = 0.01,
+) -> torch.Tensor:
+    """Hinge over the ERODED true-FOREGROUND region:
+    mean(relu(logit(tau_p) - logit)).
+
+    THE PROBLEM THIS TERM EXISTS FOR (the fill==background failure,
+    2026-07-26): every background-quality term since v8 (bg_purity BCE, the
+    bg hinge, tighter bands) priced "alpha left on background" and NOTHING
+    ever priced "hole carved inside an opaque element". Under that
+    asymmetric objective the rational policy for an ambiguous pixel is
+    DELETE — measured on real artwork whose letter fills share the page
+    color, every candidate hollows the fills. This term is the bg hinge's
+    exact mirror: every pure-interior pixel predicted below `tau_p` gets a
+    CONSTANT gradient toward opacity, however deep the hole.
+
+    Contracts mirror bg_hinge_loss verbatim:
+    - region: gt == 1 eroded by `erosion_px` — the soft edge band is
+      EXCLUDED, legitimate fur/glass softness is untouched;
+    - `max_soft_ratio`: samples whose GT soft-alpha ratio exceeds it are
+      exempted per-sample (glow/transparency categories keep their
+      semi-transparent interiors);
+    - `hard_erosion_px` + `hard_soft_ratio`: hard-edged samples use the
+      tight band so the pressure reaches close to the outline."""
+    if pred_logits.shape != gt.shape:
+        raise ValueError(f"shape mismatch: {tuple(pred_logits.shape)} vs {tuple(gt.shape)}")
+    if not 0.0 < tau_p < 1.0:
+        raise ValueError(f"tau_p must be in (0, 1), got {tau_p}")
+    gt_f = gt.float()
+    soft = ((gt_f > 0.05) & (gt_f < 0.95)).float()
+    soft_ratio = soft.mean(dim=(-3, -2, -1))
+
+    fg = _eroded_fg_mask(gt, erosion_px)
+    if hard_erosion_px is not None:
+        fg_tight = _eroded_fg_mask(gt, hard_erosion_px)
+        hard = (soft_ratio <= hard_soft_ratio).view(-1, 1, 1, 1)
+        fg = torch.where(hard, fg_tight, fg)
+    if max_soft_ratio is not None:
+        keep = (soft_ratio <= max_soft_ratio).float().view(-1, 1, 1, 1)
+        fg = fg * keep
+    n_fg = fg.sum()
+    if n_fg < 1:
+        return pred_logits.sum() * 0.0
+    tau_logit = math.log(tau_p / (1.0 - tau_p))
+    hinge = F.relu(tau_logit - pred_logits.float())
+    return (hinge * fg).sum() / n_fg
+
+
 def bg_hinge_loss(
     pred_logits: torch.Tensor,
     gt: torch.Tensor,

@@ -35,6 +35,7 @@ Usage:
         --out-dir data/testset_design_real --count 16 --seed 7
 """
 import argparse
+import hashlib
 import json
 import math
 from pathlib import Path
@@ -43,6 +44,14 @@ import numpy as np
 from PIL import Image
 
 Image.MAX_IMAGE_PIXELS = None
+
+
+def _item_rng(seed: int, key: str) -> np.random.Generator:
+    """Source: scripts/make_composites.py::_item_rng (exact copy)."""
+    digest = hashlib.sha256(key.encode("utf-8")).digest()
+    entropy = [seed & 0xFFFFFFFF] + [
+        int.from_bytes(digest[i:i + 4], "big") for i in range(0, 16, 4)]
+    return np.random.default_rng(np.random.SeedSequence(entropy))
 
 BG_COVER_FRAC = 0.92
 MIN_FG_COVER, MAX_FG_COVER = 0.08, 0.92
@@ -142,8 +151,61 @@ def render_template(ex: dict) -> tuple[np.ndarray, np.ndarray] | None:
     return comp.round().clip(0, 255).astype(np.uint8), gt
 
 
+def render_template_ambig(ex: dict, rng: np.random.Generator
+                          ) -> tuple[np.ndarray, np.ndarray] | None:
+    """REAL template, MANUFACTURED ambiguity (fill==page, spec 2026-07-26):
+    the original background stack is DROPPED and the page is filled with the
+    dominant color of one randomly chosen foreground element — so a real
+    design element is pixel-indistinguishable from the page and only layout
+    context separates them. GT stays layer-exact (union of fg alphas).
+    The preview quality-guard cannot apply (we deliberately diverge from the
+    shipped preview); geometry/cover guards are kept."""
+    cw, ch = int(ex["canvas_width"]), int(ex["canvas_height"])
+    if ex["length"] < MIN_ELEMENTS or cw < 200 or ch < 200 or max(cw, ch) / min(cw, ch) > 2.6:
+        return None
+    n_bg = split_background(ex)
+    if n_bg >= ex["length"]:
+        return None
+
+    layers = []
+    for i in range(n_bg, ex["length"]):
+        rgb, a = element_canvas_layer(
+            ex["image"][i], ex["left"][i], ex["top"][i],
+            ex["width"][i], ex["height"][i], ex["angle"][i], ex["opacity"][i],
+            cw, ch,
+        )
+        layers.append((rgb, a))
+
+    # dominant color of a random sufficiently-large, sufficiently-opaque element
+    big = [j for j, (_, a) in enumerate(layers) if float((a > 0.9).sum()) >= 500]
+    if not big:
+        return None
+    j = big[int(rng.integers(0, len(big)))]
+    rgb_j, a_j = layers[j]
+    sel = a_j > 0.9
+    page = np.median(rgb_j[sel], axis=0).astype(np.float32)
+
+    comp = np.broadcast_to(page, (ch, cw, 3)).astype(np.float32).copy()
+    gt = np.zeros((ch, cw), dtype=np.float32)
+    for rgb, a in layers:
+        comp = a[..., None] * rgb + (1.0 - a[..., None]) * comp
+        gt = 1.0 - (1.0 - gt) * (1.0 - a)
+
+    cover = float((gt > 0.5).mean())
+    if not (MIN_FG_COVER <= cover <= MAX_FG_COVER):
+        return None
+
+    scale = min(1.0, MAX_LONG_SIDE / max(cw, ch))
+    if scale < 1.0:
+        nw, nh = int(cw * scale), int(ch * scale)
+        comp_img = Image.fromarray(comp.round().clip(0, 255).astype(np.uint8)).resize((nw, nh), Image.LANCZOS)
+        gt_img = Image.fromarray(np.round(gt * 255).astype(np.uint8)).resize((nw, nh), Image.BILINEAR)
+        return np.asarray(comp_img), np.asarray(gt_img, np.float32) / 255.0
+    return comp.round().clip(0, 255).astype(np.uint8), gt
+
+
 def run(out_dir: Path, count: int = 16, seed: int = 7, split: str = "test",
-        quality: int = 95) -> int:
+        quality: int = 95, ambig: bool = False) -> int:
     """Resume-safe: existing im+gt pairs are skipped (Colab session drops must
     not restart hours of work); the manifest is rebuilt at the end from the
     outputs actually on disk. Progress prints every 250 accepted pairs (the
@@ -156,6 +218,8 @@ def run(out_dir: Path, count: int = 16, seed: int = 7, split: str = "test",
     (out_dir / "gt").mkdir(parents=True, exist_ok=True)
     ds = load_dataset("cyberagent/crello", split=split)
     order = np.random.default_rng(seed).permutation(len(ds))
+    prefix = "crello_ambig_" if ambig else "crello_"
+    category = "design_real_ambig" if ambig else "design_real"
 
     rows, taken, scanned, skipped = [], 0, 0, 0
     for idx in order:
@@ -163,26 +227,29 @@ def run(out_dir: Path, count: int = 16, seed: int = 7, split: str = "test",
             break
         scanned += 1
         ex = ds[int(idx)]
-        stem = f"crello_{ex['id']}"
+        stem = f"{prefix}{ex['id']}"
         im_p = out_dir / "im" / f"{stem}.jpg"
         gt_p = out_dir / "gt" / f"{stem}.png"
         if im_p.exists() and gt_p.exists():
-            rows.append({"id": stem, "image": str(im_p), "category": "design_real",
+            rows.append({"id": stem, "image": str(im_p), "category": category,
                          "gt_alpha": str(gt_p)})
             taken += 1
             skipped += 1
             continue
-        result = render_template(ex)
+        if ambig:
+            result = render_template_ambig(ex, _item_rng(seed, stem))
+        else:
+            result = render_template(ex)
         if result is None:
             continue
         comp, gt = result
         Image.fromarray(comp).save(im_p, quality=quality)
         Image.fromarray(np.round(gt * 255).astype(np.uint8), mode="L").save(gt_p)
-        rows.append({"id": stem, "image": str(im_p), "category": "design_real",
+        rows.append({"id": stem, "image": str(im_p), "category": category,
                      "gt_alpha": str(gt_p)})
         taken += 1
         if taken % 250 == 0:
-            print(f"design_real progress: {taken}/{count} (scanned {scanned})")
+            print(f"{category} progress: {taken}/{count} (scanned {scanned})")
 
     with open(out_dir / "manifest.jsonl", "w") as f:
         for r in rows:

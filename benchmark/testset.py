@@ -10,6 +10,10 @@ CATEGORIES = {
     "design_real",
     # Lucida Design training/holdout categories (font-exact and SVG-exact GT)
     "typography", "clipart",
+    # fill==background campaign (spec 2026-07-26): outlined type, stroked
+    # sticker collages, real templates over element-colored pages, and the
+    # dedicated probe category measured with fill_alpha/fill_hole.
+    "typography_outline", "clipart2", "design_real_ambig", "fill_eq_bg",
 }
 _KEYS = {"id", "image", "category", "gt_alpha"}
 

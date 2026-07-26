@@ -191,3 +191,83 @@ def test_mixed_batch_bands_apply_per_sample():
     loss.backward()
     assert logits.grad[0].abs().sum().item() > 0    # hard sample pressured
     assert logits.grad[1].abs().sum().item() == 0.0  # soft sample exempt
+
+
+# ---------------------------------------------------------------------------
+# fg_hinge_loss — the fill==background mirror force (spec 2026-07-26)
+from training.torch_losses import fg_hinge_loss  # noqa: E402
+
+
+def test_fg_hinge_opaque_interior_costs_nothing():
+    gt = _square_gt()
+    logits = torch.full_like(gt, -12.0)
+    logits[..., 20:44, 20:44] = 12.0  # interior confidently opaque
+    assert fg_hinge_loss(logits, gt, erosion_px=11).item() < 1e-6
+
+
+def test_fg_hinge_hole_costs_and_scales():
+    """A hole carved in the middle of an opaque square must cost, and a
+    deeper hole must cost more — the constant-gradient claim."""
+    gt = _square_gt()
+    shallow = torch.full_like(gt, 12.0)
+    shallow[..., 28:36, 28:36] = 1.0    # p~0.73 'thinning'
+    deep = torch.full_like(gt, 12.0)
+    deep[..., 28:36, 28:36] = -6.0      # p~0.0025 hole
+    l_shallow = fg_hinge_loss(shallow, gt, erosion_px=5).item()
+    l_deep = fg_hinge_loss(deep, gt, erosion_px=5).item()
+    assert l_shallow > 0.0
+    assert l_deep > l_shallow * 1.5
+
+
+def test_fg_hinge_edge_band_is_exempt():
+    """Only the eroded INTERIOR is pressured — a soft prediction on the
+    letter edge (the legitimate antialias band) costs nothing."""
+    gt = _square_gt()
+    logits = torch.full_like(gt, -12.0)
+    logits[..., 22:42, 22:42] = 12.0    # interior opaque
+    # the outer 2px of the square predicted soft: inside erosion band
+    assert fg_hinge_loss(logits, gt, erosion_px=11).item() < 1e-6
+
+
+def test_fg_hinge_soft_gt_sample_exempted():
+    """A glow-like GT (many semi-transparent pixels) must be exempt under
+    max_soft_ratio — its interior is ALLOWED to be semi-transparent."""
+    hard = torch.zeros(1, 1, 64, 64)
+    hard[..., 20:44, 20:44] = 1.0
+    softg = torch.zeros(1, 1, 64, 64)
+    softg[..., 8:56, 8:56] = 0.5        # 56% soft pixels
+    gt = torch.cat([hard, softg], dim=0)
+    logits = torch.full_like(gt, -6.0)  # everything predicted near-empty
+    gated = fg_hinge_loss(logits, gt, erosion_px=5, max_soft_ratio=0.12)
+    ungated = fg_hinge_loss(logits, gt, erosion_px=5, max_soft_ratio=None)
+    assert gated.item() > 0.0
+    assert ungated.item() > gated.item() * 0.99  # soft sample adds no fg region anyway
+    # the gate zeroes the soft sample's contribution even if its GT had 1.0
+    # pixels — give that sample a DEEPER hole so its inclusion moves the mean
+    softg2 = softg.clone()
+    softg2[..., 28:36, 28:36] = 1.0
+    gt2 = torch.cat([hard, softg2], dim=0)
+    logits2 = torch.full_like(gt2, -6.0)
+    logits2[1] = -14.0                    # much deeper hole in the soft sample
+    per_sample_off = fg_hinge_loss(logits2, gt2, erosion_px=3, max_soft_ratio=0.12)
+    per_sample_on = fg_hinge_loss(logits2, gt2, erosion_px=3, max_soft_ratio=None)
+    assert per_sample_on.item() > per_sample_off.item() + 0.5
+
+
+def test_fg_hinge_hard_sample_gets_tight_band():
+    """Hard-edged art: with hard_erosion_px=3 the pressure reaches pixels
+    the wide 11px band would leave as sanctuary."""
+    gt = _square_gt()                    # hard square (soft ratio ~0)
+    logits = torch.full_like(gt, 12.0)
+    logits[..., 18:22, 18:46] = -6.0     # hole strip near the edge
+    wide = fg_hinge_loss(logits, gt, erosion_px=11).item()
+    tight = fg_hinge_loss(logits, gt, erosion_px=11, hard_erosion_px=3).item()
+    assert tight > wide
+
+
+def test_fg_hinge_no_foreground_returns_zero_with_grad():
+    gt = torch.zeros(1, 1, 32, 32)
+    logits = torch.zeros(1, 1, 32, 32, requires_grad=True)
+    loss = fg_hinge_loss(logits, gt)
+    assert loss.item() == 0.0
+    loss.backward()

@@ -167,8 +167,91 @@ def render_clipart_sample(
     return comp.round().clip(0, 255).astype(np.uint8), gt
 
 
+OUTLINE_PX_FRAC = (0.010, 0.035)   # stroke band / element long side
+FILL_EQ_BG_SHARE_CLIP = 0.5        # among outline samples: page == element color
+
+
+def render_clipart_outline_sample(
+    rng: np.random.Generator,
+    svg_paths: list[Path],
+    force_fill_eq_bg: bool | None = None,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Sticker-style collage (spec 2026-07-26): every element gets an
+    enclosing stroke (dilated alpha band), and half the time the page is
+    painted with the FIRST element's dominant color — the element is then
+    pixel-identical to the page and only its stroke separates them. GT is
+    the union of element+stroke alphas."""
+    from PIL import ImageFilter
+
+    short = int(rng.integers(CANVAS_SHORT[0], CANVAS_SHORT[1] + 1))
+    aspect = ASPECTS[int(rng.integers(0, len(ASPECTS)))]
+    w, h = (short, int(short / aspect)) if aspect <= 1.0 else (int(short * aspect), short)
+    fill_eq_bg = (rng.uniform() < FILL_EQ_BG_SHARE_CLIP
+                  if force_fill_eq_bg is None else force_fill_eq_bg)
+
+    n = int(rng.integers(2, 5))
+    m = max(4, int(MARGIN_FRAC * min(w, h)))
+    elements = []
+    for _ in range(n):
+        p = svg_paths[int(rng.integers(0, len(svg_paths)))]
+        target = int(min(w, h) * rng.uniform(0.20, 0.50))
+        try:
+            with _time_limit(RENDER_TIMEOUT_S):
+                rgb_el, a_el = render_svg_rgba(Path(p).read_text(errors="ignore"), out_width=target)
+        except Exception:
+            continue
+        if a_el.shape[0] > 5000 or a_el.shape[0] > 8 * max(1, a_el.shape[1]):
+            continue
+        # stroke = dilated alpha band (PIL MaxFilter; odd kernel)
+        band = max(3, int(max(a_el.shape) * rng.uniform(*OUTLINE_PX_FRAC)))
+        k = band * 2 + 1
+        a_img = Image.fromarray(np.round(a_el * 255).astype(np.uint8), mode="L")
+        pad = band + 2
+        a_pad = Image.new("L", (a_img.width + 2 * pad, a_img.height + 2 * pad), 0)
+        a_pad.paste(a_img, (pad, pad))
+        dil = np.asarray(a_pad.filter(ImageFilter.MaxFilter(k)), np.float32) / 255.0
+        base = np.zeros_like(dil)
+        base[pad:pad + a_el.shape[0], pad:pad + a_el.shape[1]] = a_el
+        rgb_pad = np.zeros((*dil.shape, 3), dtype=np.float32)
+        rgb_pad[pad:pad + a_el.shape[0], pad:pad + a_el.shape[1]] = rgb_el
+        opaque = base > 0.9
+        dominant = (np.median(rgb_pad[opaque], axis=0).astype(np.float32)
+                    if opaque.sum() >= 200 else np.float32([245, 245, 245]))
+        stroke_col = (rng.uniform(5, 60, 3) if dominant.mean() > 128
+                      else rng.uniform(215, 255, 3)).astype(np.float32)
+        elements.append((rgb_pad, base, dil, stroke_col, dominant))
+
+    if fill_eq_bg and elements:
+        page = elements[0][4]
+    else:
+        page = rng.uniform(150, 250, 3).astype(np.float32)
+    comp = np.broadcast_to(page, (h, w, 3)).astype(np.float32).copy()
+    gt = np.zeros((h, w), dtype=np.float32)
+
+    for rgb_el, base, dil, stroke_col, _ in elements:
+        eh, ew = dil.shape
+        if ew >= w - 2 * m or eh >= h - 2 * m:
+            f = min((w - 2 * m - 1) / ew, (h - 2 * m - 1) / eh)
+            nw, nh = max(1, int(ew * f)), max(1, int(eh * f))
+            rgb_el = np.asarray(Image.fromarray(rgb_el.astype(np.uint8)).resize((nw, nh), Image.LANCZOS), np.float32)
+            base = np.asarray(Image.fromarray(np.round(base * 255).astype(np.uint8)).resize((nw, nh), Image.BILINEAR), np.float32) / 255.0
+            dil = np.asarray(Image.fromarray(np.round(dil * 255).astype(np.uint8)).resize((nw, nh), Image.BILINEAR), np.float32) / 255.0
+            eh, ew = nh, nw
+        x0 = int(rng.integers(m, max(m + 1, w - m - ew)))
+        y0 = int(rng.integers(m, max(m + 1, h - m - eh)))
+        region = comp[y0:y0 + eh, x0:x0 + ew]
+        stroke_a = np.clip(dil - base, 0.0, 1.0)
+        region = stroke_a[..., None] * stroke_col + (1 - stroke_a[..., None]) * region
+        comp[y0:y0 + eh, x0:x0 + ew] = base[..., None] * rgb_el + (1 - base[..., None]) * region
+        g = gt[y0:y0 + eh, x0:x0 + ew]
+        gt[y0:y0 + eh, x0:x0 + ew] = 1.0 - (1.0 - g) * (1.0 - dil)
+
+    return comp.round().clip(0, 255).astype(np.uint8), gt
+
+
 def run(out_dir: Path, svg_dir: Path, count: int = DEFAULT_COUNT, seed: int = 33,
-        white_bg_share: float = WHITE_BG_SHARE) -> int:
+        white_bg_share: float = WHITE_BG_SHARE, outline: bool = False,
+        stem_prefix: str = "clip_", category: str = "clipart") -> int:
     out_dir = Path(out_dir)
     (out_dir / "im").mkdir(parents=True, exist_ok=True)
     (out_dir / "gt").mkdir(parents=True, exist_ok=True)
@@ -180,15 +263,18 @@ def run(out_dir: Path, svg_dir: Path, count: int = DEFAULT_COUNT, seed: int = 33
 
     rows, generated, skipped = [], 0, 0
     for i in range(count):
-        stem = f"clip_{i:05d}"
+        stem = f"{stem_prefix}{i:05d}"
         im_p = out_dir / "im" / f"{stem}.jpg"
         gt_p = out_dir / "gt" / f"{stem}.png"
-        rows.append({"id": stem, "category": "clipart"})
+        rows.append({"id": stem, "category": category})
         if im_p.exists() and gt_p.exists():
             skipped += 1
             continue
         rng = _item_rng(seed, stem)
-        rgb, gt = render_clipart_sample(rng, svg_paths, white_bg_share=white_bg_share)
+        if outline:
+            rgb, gt = render_clipart_outline_sample(rng, svg_paths)
+        else:
+            rgb, gt = render_clipart_sample(rng, svg_paths, white_bg_share=white_bg_share)
         _save_pair(rgb, gt, im_p, gt_p)
         generated += 1
         if generated % 100 == 0:

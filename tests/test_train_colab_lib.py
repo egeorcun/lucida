@@ -108,7 +108,12 @@ def test_sampler_preset_v1_matches_default_target_share():
 
 
 def test_sampler_presets_registry_has_v1_v2_v3_and_v4():
-    assert set(SAMPLER_PRESETS) == {"v1", "v2", "v3", "v4", "v5", "v7", "v8", "v9", "v10", "v12", "v14", "v15", "v16"}
+    assert set(SAMPLER_PRESETS) == {"v1", "v2", "v3", "v4", "v5", "v7", "v8", "v9", "v10", "v12", "v14", "v15", "v16", "v17"}
+    v17 = SAMPLER_PRESETS["v17"]
+    assert sum(v17.values()) == pytest.approx(1.0, abs=1e-9)
+    # 28% of the epoch is manufactured fill==bg ambiguity (spec 2026-07-26)
+    ambig = v17["typography_outline"] + v17["clipart2"] + v17["design_real_ambig"]
+    assert ambig == pytest.approx(0.28)
     v16 = SAMPLER_PRESETS["v16"]
     assert sum(v16.values()) == pytest.approx(1.0, abs=1e-9)
     assert v16["design_real"] == pytest.approx(0.22)

@@ -44,7 +44,8 @@ def test_conn_penalizes_disconnected_blobs(square_alpha):
 
 def test_all_metrics_keys(square_alpha):
     m = all_metrics(square_alpha, square_alpha)
-    assert set(m) == {"sad", "mae", "mse", "grad", "conn", "bg_mae", "bg_smear"}
+    assert set(m) == {"sad", "mae", "mse", "grad", "conn", "bg_mae", "bg_smear",
+                      "fill_alpha", "fill_hole"}
 
 
 def test_bg_stats_clean_background_is_zero(square_alpha):
@@ -84,4 +85,41 @@ def test_all_metrics_omits_bg_keys_when_unmeasurable():
     measurable background, the bg keys are simply absent."""
     gt = np.ones((100, 100), dtype=np.float32)
     m = all_metrics(gt, gt)
-    assert set(m) == {"sad", "mae", "mse", "grad", "conn"}
+    # all-foreground image: bg keys absent, fill keys present (and perfect)
+    assert set(m) == {"sad", "mae", "mse", "grad", "conn", "fill_alpha", "fill_hole"}
+    assert m["fill_alpha"] > 0.999
+
+
+# fg_stats — the fill==background hole metric (spec 2026-07-26)
+from benchmark.metrics import fg_stats  # noqa: E402
+
+
+def test_fg_stats_intact_fill_scores_one():
+    gt = np.zeros((100, 100), dtype=np.float32)
+    gt[20:80, 20:80] = 1.0
+    pred = gt.copy()
+    s = fg_stats(pred, gt, erosion_px=5)
+    assert s["fill_alpha"] > 0.999
+    assert s["fill_hole"] == 0.0
+
+
+def test_fg_stats_hole_is_measured_and_edge_band_exempt():
+    gt = np.zeros((100, 100), dtype=np.float32)
+    gt[20:80, 20:80] = 1.0
+    pred = gt.copy()
+    pred[45:55, 45:55] = 0.1          # hole in the middle
+    pred[20:80, 20:22] = 0.5          # soft EDGE strip: inside erosion band
+    s = fg_stats(pred, gt, erosion_px=5)
+    assert s["fill_alpha"] < 0.99
+    assert 0.0 < s["fill_hole"] < 0.2
+    # the same pred with the edge strip only — erosion exempts it
+    pred2 = gt.copy()
+    pred2[20:80, 20:22] = 0.5
+    s2 = fg_stats(pred2, gt, erosion_px=5)
+    assert s2["fill_hole"] == 0.0
+
+
+def test_fg_stats_nan_when_no_opaque_interior():
+    gt = np.full((50, 50), 0.5, dtype=np.float32)   # all semi-transparent
+    s = fg_stats(gt, gt)
+    assert np.isnan(s["fill_alpha"])

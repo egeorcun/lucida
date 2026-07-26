@@ -280,7 +280,8 @@ def render_typography_sample(
 
 def run(out_dir: Path, font_dir: Path, bg_pool_dirs: list[Path],
         count: int = DEFAULT_COUNT, seed: int = 21,
-        outline_from: int | None = None) -> int:
+        outline_from: int | None = None,
+        stem_prefix: str = "typo_", category: str = "typography") -> int:
     out_dir = Path(out_dir)
     (out_dir / "im").mkdir(parents=True, exist_ok=True)
     (out_dir / "gt").mkdir(parents=True, exist_ok=True)
@@ -295,10 +296,10 @@ def run(out_dir: Path, font_dir: Path, bg_pool_dirs: list[Path],
 
     rows, generated, skipped = [], 0, 0
     for i in range(count):
-        stem = f"typo_{i:05d}"
+        stem = f"{stem_prefix}{i:05d}"
         im_p = out_dir / "im" / f"{stem}.jpg"
         gt_p = out_dir / "gt" / f"{stem}.png"
-        rows.append({"id": stem, "category": "typography"})
+        rows.append({"id": stem, "category": category})
         if im_p.exists() and gt_p.exists():
             skipped += 1
             continue

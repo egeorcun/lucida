@@ -417,6 +417,35 @@ the Stay Fresh lesson). design_real expands to ~11.5k Crello pairs. The
 recipe is FIXED for the whole staged campaign (1024 -> 1024 -> 1536); the
 hinge runs with the adaptive erosion band (hard-edged GT: 3px)."""
 
+SAMPLER_PRESET_V17: dict[str, float] = {
+    "design_real": 0.16,
+    "design_real_ambig": 0.08,
+    "typography": 0.08,
+    "typography_outline": 0.14,
+    "clipart": 0.06,
+    "clipart2": 0.06,
+    "transparent": 0.12,
+    "complex": 0.10,
+    "illustration": 0.06,
+    "design": 0.04,
+    "text": 0.04,
+    "fx": 0.03,
+    "hair": 0.01,
+    "camouflage": 0.01,
+    "thin": 0.005,
+    "general": 0.005,
+}
+"""v17 target (sums to EXACTLY 100%) — the FILL==BACKGROUND campaign (spec:
+docs/superpowers/specs/2026-07-26-fill-eq-bg-definitive-fix.md). Not more of
+v16 but a symmetric-objective run: fg_hinge_loss (torch_losses) prices holes
+carved inside opaque elements exactly as the bg hinge prices haze, and 28%
+of every epoch is now MANUFACTURED ambiguity — `typography_outline`
+(outline menu from index 0, fill==page .50), `clipart2` (stroked stickers
+over element-colored pages), `design_real_ambig` (REAL Crello foregrounds
+re-composited over a page painted with one element's dominant color).
+Resumes from epoch_16 (the 1536 epoch bought nothing) with LR_SCALE=1.0 —
+relearning a deletion bias needs real learning pressure."""
+
 SAMPLER_PRESETS: dict[str, dict[str, float]] = {
     "v1": SAMPLER_PRESET_V1,
     "v2": SAMPLER_PRESET_V2,
@@ -431,6 +460,7 @@ SAMPLER_PRESETS: dict[str, dict[str, float]] = {
     "v14": SAMPLER_PRESET_V14,
     "v15": SAMPLER_PRESET_V15,
     "v16": SAMPLER_PRESET_V16,
+    "v17": SAMPLER_PRESET_V17,
 }
 """The table the notebook's `SAMPLER_PRESET` parameter ("v1"/"v2"/"v3"/"v4")
 is resolved against — see the `training/train_colab.ipynb` parameters cell and

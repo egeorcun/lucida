@@ -99,6 +99,34 @@ def bg_stats(
     }
 
 
+def fg_stats(
+    pred: np.ndarray,
+    gt: np.ndarray,
+    hole_thresh: float = 0.90,
+    erosion_px: int = 11,
+    min_pixels: int = 1000,
+) -> dict[str, float]:
+    """Interior integrity over the TRUE foreground — the mirror of bg_stats
+    (the fill==background lesson, spec 2026-07-26): the GT==1 region eroded
+    by `erosion_px`, i.e. pixels that are unambiguously INSIDE an opaque
+    element.
+
+    - fill_alpha: mean predicted alpha over that region (1 = intact fills)
+    - fill_hole:  fraction of that region predicted below `hole_thresh`
+                  (the "visible hollowing" ratio)
+
+    NaN (aggregate with nanmean) when the region is too small."""
+    _check(pred, gt)
+    fg = binary_erosion(gt >= 0.999, structure=np.ones((erosion_px, erosion_px), dtype=bool))
+    if int(fg.sum()) < min_pixels:
+        return {"fill_alpha": float("nan"), "fill_hole": float("nan")}
+    vals = pred[fg]
+    return {
+        "fill_alpha": float(vals.mean()),
+        "fill_hole": float((vals < hole_thresh).mean()),
+    }
+
+
 def all_metrics(pred: np.ndarray, gt: np.ndarray) -> dict[str, float]:
     """bg_mae/bg_smear are OMITTED (not NaN) for images with no measurable
     pure-background region — per-image dicts stay NaN-free (valid strict JSON,
@@ -111,4 +139,5 @@ def all_metrics(pred: np.ndarray, gt: np.ndarray) -> dict[str, float]:
         "conn": conn_error(pred, gt),
     }
     result.update({k: v for k, v in bg_stats(pred, gt).items() if not np.isnan(v)})
+    result.update({k: v for k, v in fg_stats(pred, gt).items() if not np.isnan(v)})
     return result

@@ -107,3 +107,30 @@ def test_run_contracts_deterministic_resume(svg_dir, tmp_path):
     mcl.run(out1, svg_dir, count=4, seed=33)
     for p, t in mtimes.items():
         assert p.stat().st_mtime_ns == t
+
+
+def test_outline_sample_fill_eq_bg_kept_in_gt(svg_dir):
+    """spec 2026-07-26: the page painted with the element's own color — the
+    element must stay fully opaque in the GT, separated only by its stroke."""
+    rng = np.random.default_rng(11)
+    rgb, gt = mcl.render_clipart_outline_sample(
+        rng, [svg_dir / "circle.svg"], force_fill_eq_bg=True)
+    page = rgb[0, 0].astype(np.float32)
+    rgbf = np.asarray(rgb, np.float32)
+    inner = gt > 0.99
+    match = inner & (np.abs(rgbf - page).max(-1) < 3)
+    assert match.mean() > 0.003, "page-colored element body must exist inside GT"
+    dark = inner & (np.abs(rgbf - page).max(-1) > 50)
+    assert dark.mean() > 0.001, "a contrasting stroke must exist"
+    for c in (gt[0, 0], gt[0, -1], gt[-1, 0], gt[-1, -1]):
+        assert c == 0.0
+
+
+def test_outline_run_contract(svg_dir, tmp_path):
+    out = tmp_path / "o_outline"
+    n = mcl.run(out, svg_dir, count=3, seed=44, outline=True,
+                stem_prefix="clip2_", category="clipart2")
+    assert n == 3
+    rows = [json.loads(l) for l in (out / "manifest.jsonl").read_text().splitlines()]
+    assert [r["id"] for r in rows] == [f"clip2_{i:05d}" for i in range(3)]
+    assert all(r["category"] == "clipart2" for r in rows)
