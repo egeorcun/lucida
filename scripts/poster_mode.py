@@ -168,6 +168,16 @@ def poster_alpha(alpha: np.ndarray, keep_thresh: float = 0.3,
             boundary = keep & ~ndimage.binary_erosion(keep, iterations=3)
             for i in range(1, pn + 1):
                 region = plab == i
-                if (region & boundary).any():        # drains to the silhouette
-                    out[region] = np.minimum(out[region], density[region].astype(np.float32))
+                if not (region & boundary).any():    # interior-locked: never haze
+                    continue
+                # INK-RING GUARD (the deleted-gloves lesson): a page-colored
+                # element wrapped almost entirely in kept ink (a cartoon
+                # glove/petal with its contour stroke) is an ELEMENT, not
+                # haze — haze bleeds into the removed page instead.
+                ring = ndimage.binary_dilation(region, iterations=2) & ~region
+                if ring.any():
+                    ink_ratio = float((ring & keep & ~pagey).sum()) / float(ring.sum())
+                    if ink_ratio >= 0.85:
+                        continue
+                out[region] = np.minimum(out[region], density[region].astype(np.float32))
     return np.clip(out, 0.0, 1.0)
