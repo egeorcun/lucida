@@ -71,9 +71,14 @@ def poster_alpha(alpha: np.ndarray, keep_thresh: float = 0.3,
             if counters == "solid":
                 filled[y0:y1, x0:x1] |= hole
             elif float(a_box[hole].mean()) >= hole_alpha_gate:
-                # the model HESITATED here (smoky glove) -> print solid,
-                # in EVERY mode; only confident zeros stay open
-                filled[y0:y1, x0:x1] |= hole
+                # the model HESITATED here -> print solid (smoky glove) —
+                # UNLESS the hole is TINY relative to its component (a letter
+                # counter, the Ideogram-parity lesson 2026-07-28): tiny
+                # hesitant holes open cleanly, size separates them from smoke
+                comp_area = float((comp_box == comp_box[ndimage.binary_dilation(hole) & ~hole][0]
+                                   if (ndimage.binary_dilation(hole) & ~hole).any() else 0).sum()) or 1.0
+                if hole.sum() >= 0.02 * comp_area:
+                    filled[y0:y1, x0:x1] |= hole
 
     if counters == "open":
         # delete kept islands floating inside holes: components fully
