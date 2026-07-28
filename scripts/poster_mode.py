@@ -26,7 +26,10 @@ def poster_alpha(alpha: np.ndarray, keep_thresh: float = 0.3,
                  min_area_frac: float = 0.00005,
                  max_hole_frac: float = 0.25,
                  hole_alpha_gate: float = 0.12,
-                 counters: str = "open") -> np.ndarray:
+                 counters: str = "open",
+                 rgb: np.ndarray | None = None,
+                 haze_matting: bool = False,
+                 haze_scale: float = 130.0) -> np.ndarray:
     """`counters` (user pick 2026-07-28: OPEN is the default):
     - "open" (apparel, DEFAULT): CONFIDENT-zero holes (letter counters) stay
       transparent and kept islands floating inside them (counter drips) are
@@ -121,4 +124,22 @@ def poster_alpha(alpha: np.ndarray, keep_thresh: float = 0.3,
     # restore the soft outer edge: original alpha wins in the edge band
     edge = keep & ~ndimage.binary_erosion(keep, iterations=2)
     out[edge] = a[edge]
+
+    if haze_matting and rgb is not None:
+        # the Ideogram-airiness lesson (CHEESE): the model keeps glow/smoke
+        # near-opaque (fx training bias) while the reference renders it as
+        # INK DENSITY — distance from the page color. Applied ONLY to
+        # boundary-DRAINING page-like regions: petal/glove whites are
+        # outline-locked and never drain, so they are untouched.
+        removed = out < 0.05
+        if removed.sum() > 500:
+            page = np.median(rgb[removed].reshape(-1, 3), axis=0)
+            density = np.clip(np.linalg.norm(rgb - page, axis=-1) / haze_scale, 0.0, 1.0)
+            pagey = (density < 0.55) & (out > 0.05)
+            plab, pn = ndimage.label(pagey)
+            boundary = keep & ~ndimage.binary_erosion(keep, iterations=3)
+            for i in range(1, pn + 1):
+                region = plab == i
+                if (region & boundary).any():        # drains to the silhouette
+                    out[region] = np.minimum(out[region], density[region].astype(np.float32))
     return np.clip(out, 0.0, 1.0)

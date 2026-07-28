@@ -64,3 +64,19 @@ def test_invalid_mode_raises():
     import pytest
     with pytest.raises(ValueError):
         pm.poster_alpha(_scene(), counters="auto")
+
+
+def test_haze_matting_thins_draining_page_like_haze_only():
+    """The CHEESE airiness lesson: page-like haze that drains to the
+    silhouette edge drops to ink density; outline-locked whites survive."""
+    import numpy as np
+    a = np.zeros((200, 200), dtype=np.float32)
+    a[20:180, 20:180] = 1.0
+    rgb = np.full((200, 200, 3), 250.0, dtype=np.float32)   # page-white everywhere
+    rgb[20:180, 20:180] = 240.0                              # near-page haze block
+    rgb[80:120, 80:120] = (200, 30, 30)                      # a red element inside
+    out = pm.poster_alpha(a, counters="open", rgb=rgb, haze_matting=True)
+    assert out[30, 100] < 0.2, "draining page-like haze must thin out"
+    assert out[100, 100] > 0.9, "colored content keeps full alpha"
+    out_off = pm.poster_alpha(a, counters="open", rgb=rgb, haze_matting=False)
+    assert out_off[30, 100] > 0.9, "matting off -> untouched"
