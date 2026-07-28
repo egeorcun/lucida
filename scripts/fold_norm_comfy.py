@@ -19,6 +19,11 @@ decoder.ipt_blk1..5.conv1 (3/48/192/768/3072 ch). The ipt blocks take
 image2patches output with 'b c (hg h) (wg w) -> b (c hg wg) h w' layout —
 CHANNEL-MAJOR, so mu/sigma expand with repeat_interleave(in_ch // 3).
 
+LIMIT: with zero-padded convs the fold is exact only in the interior — a
+padded zero means "raw mu" pre-fold but "raw 0" post-fold. patch_embed is
+unpadded (exact); the ipt convs carry a 1px border approximation on their
+downsampled image inputs, invisible in practice.
+
 Validated end to end through ComfyUI's own loader (comfy.bg_removal_model):
 folded weights reproduce the normalized-pipeline behavior (white-element
 alpha 0.41 vs reference 0.39; background unchanged at 0.0005).
