@@ -446,6 +446,37 @@ re-composited over a page painted with one element's dominant color).
 Resumes from epoch_16 (the 1536 epoch bought nothing) with LR_SCALE=1.0 —
 relearning a deletion bias needs real learning pressure."""
 
+SAMPLER_PRESET_V18: dict[str, float] = {
+    "design_real": 0.13,
+    "design_real_ambig": 0.07,
+    "typography": 0.07,
+    "typography_outline": 0.12,
+    "clipart": 0.06,
+    "clipart2": 0.06,
+    "limb": 0.05,
+    "atmosphere": 0.06,
+    "transparent": 0.10,
+    "complex": 0.09,
+    "illustration": 0.06,
+    "design": 0.04,
+    "text": 0.04,
+    "fx": 0.02,
+    "hair": 0.01,
+    "camouflage": 0.01,
+    "thin": 0.005,
+    "general": 0.005,
+}
+"""v18 target (sums to EXACTLY 100%) — the LIMB + ATMOSPHERE campaign (spec:
+docs/superpowers/specs/2026-07-29-v18-limb-atmosphere.md). Two eye-test gaps
+survived every trainless rule and were proven locally undecidable: page-
+colored limbs attached at the silhouette edge (YH gloves, raw alpha
+0.03-0.17, statistics inseparable from letter counters) and halftone
+smoke/glow fields printed at alpha ~1.0 where the Ideogram reference
+renders ink DENSITY. `limb` (make_clipart --limb) and `atmosphere`
+(make_atmosphere, continuous density GT) teach exactly those; the v17
+recipe (fg_hinge 3.0, LR_SCALE 1.0) is otherwise unchanged, resuming from
+epoch_17."""
+
 SAMPLER_PRESETS: dict[str, dict[str, float]] = {
     "v1": SAMPLER_PRESET_V1,
     "v2": SAMPLER_PRESET_V2,
@@ -461,6 +492,7 @@ SAMPLER_PRESETS: dict[str, dict[str, float]] = {
     "v15": SAMPLER_PRESET_V15,
     "v16": SAMPLER_PRESET_V16,
     "v17": SAMPLER_PRESET_V17,
+    "v18": SAMPLER_PRESET_V18,
 }
 """The table the notebook's `SAMPLER_PRESET` parameter ("v1"/"v2"/"v3"/"v4")
 is resolved against — see the `training/train_colab.ipynb` parameters cell and

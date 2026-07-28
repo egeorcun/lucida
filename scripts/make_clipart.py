@@ -249,8 +249,150 @@ def render_clipart_outline_sample(
     return comp.round().clip(0, 255).astype(np.uint8), gt
 
 
+LIMB_WHITE_PAGE_SHARE = 0.85       # the ambiguity is white-on-white
+LIMB_COUNT = (2, 4)                # limbs per body
+LIMB_FRAC = (0.10, 0.22)           # limb long side / canvas short side
+LIMB_OUTSIDE = (0.30, 0.70)        # fraction of the limb outside the body
+
+
+def _blob_mask(rng: np.random.Generator, size: int) -> np.ndarray:
+    """Rounded organic blob alpha in [0,1]: ellipse / two-lobe mitten /
+    wobbled polygon — the cartoon glove/foot/ear shape family."""
+    from PIL import ImageDraw, ImageFilter
+
+    img = Image.new("L", (size, size), 0)
+    d = ImageDraw.Draw(img)
+    kind = rng.uniform()
+    if kind < 0.4:      # ellipse
+        rx, ry = rng.uniform(0.30, 0.48), rng.uniform(0.22, 0.48)
+        d.ellipse([size * (0.5 - rx), size * (0.5 - ry),
+                   size * (0.5 + rx), size * (0.5 + ry)], fill=255)
+    elif kind < 0.7:    # two-lobe mitten: big palm + thumb lobe
+        d.ellipse([size * 0.10, size * 0.22, size * 0.78, size * 0.88], fill=255)
+        d.ellipse([size * 0.52, size * 0.08, size * 0.92, size * 0.48], fill=255)
+    else:               # wobbled polygon
+        n_pt = int(rng.integers(7, 12))
+        ang = np.linspace(0, 2 * np.pi, n_pt, endpoint=False)
+        rad = size * rng.uniform(0.30, 0.46, n_pt)
+        pts = [(size / 2 + r * np.cos(a), size / 2 + r * np.sin(a))
+               for a, r in zip(ang, rad)]
+        d.polygon(pts, fill=255)
+        img = img.filter(ImageFilter.MaxFilter(9))
+    return np.asarray(img, dtype=np.float32) / 255.0
+
+
+def render_limb_sample(
+    rng: np.random.Generator,
+    svg_paths: list[Path],
+) -> tuple[np.ndarray, np.ndarray]:
+    """The YOU'RE HAPPY gloves lesson (spec 2026-07-29): one big BODY plus
+    2-4 page-colored, dark-stroked procedural limbs ATTACHED to the body's
+    silhouette edge, over a (mostly white) page the limb fill matches.
+    Knuckle strokes attach to the contour. GT = body + limb + strokes."""
+    from PIL import ImageDraw, ImageFilter
+
+    short = int(rng.integers(CANVAS_SHORT[0], CANVAS_SHORT[1] + 1))
+    aspect = ASPECTS[int(rng.integers(0, len(ASPECTS)))]
+    w, h = (short, int(short / aspect)) if aspect <= 1.0 else (int(short * aspect), short)
+    if rng.uniform() < LIMB_WHITE_PAGE_SHARE:
+        page = np.float32([250.0, 250.0, 250.0]) + rng.uniform(-4, 4, 3).astype(np.float32)
+    else:
+        page = rng.uniform(228, 250, 3).astype(np.float32)
+    comp = np.broadcast_to(page, (h, w, 3)).astype(np.float32).copy()
+    gt = np.zeros((h, w), dtype=np.float32)
+
+    # BODY: one big SVG, center-biased
+    body_a = None
+    for _ in range(6):
+        p = svg_paths[int(rng.integers(0, len(svg_paths)))]
+        target = int(min(w, h) * rng.uniform(0.45, 0.70))
+        try:
+            with _time_limit(RENDER_TIMEOUT_S):
+                rgb_el, a_el = render_svg_rgba(Path(p).read_text(errors="ignore"), out_width=target)
+        except Exception:
+            continue
+        if a_el.shape[0] > 5000 or a_el.shape[0] > 8 * max(1, a_el.shape[1]):
+            continue
+        if a_el.max() < 0.5 or (a_el > 0.5).sum() < 0.05 * a_el.size:
+            continue
+        eh, ew = a_el.shape
+        if ew >= int(w * 0.9) or eh >= int(h * 0.9):
+            f = min(w * 0.9 / ew, h * 0.9 / eh)
+            nw, nh = max(1, int(ew * f)), max(1, int(eh * f))
+            rgb_el = np.asarray(Image.fromarray(rgb_el.astype(np.uint8)).resize((nw, nh), Image.LANCZOS), np.float32)
+            a_el = np.asarray(Image.fromarray(np.round(a_el * 255).astype(np.uint8)).resize((nw, nh), Image.BILINEAR), np.float32) / 255.0
+            eh, ew = nh, nw
+        x0 = int((w - ew) * rng.uniform(0.30, 0.70))
+        y0 = int((h - eh) * rng.uniform(0.30, 0.70))
+        region = comp[y0:y0 + eh, x0:x0 + ew]
+        comp[y0:y0 + eh, x0:x0 + ew] = a_el[..., None] * rgb_el + (1 - a_el[..., None]) * region
+        gt[y0:y0 + eh, x0:x0 + ew] = np.maximum(gt[y0:y0 + eh, x0:x0 + ew], a_el)
+        body_a = (x0, y0, ew, eh, a_el)
+        break
+    if body_a is None:
+        return comp.round().clip(0, 255).astype(np.uint8), gt
+
+    bx, by, bw, bh, ba = body_a
+    # boundary pixels of the body mask
+    bm = ba > 0.5
+    inner = np.zeros_like(bm)
+    inner[1:-1, 1:-1] = bm[1:-1, 1:-1] & bm[:-2, 1:-1] & bm[2:, 1:-1] & bm[1:-1, :-2] & bm[1:-1, 2:]
+    bys, bxs = np.nonzero(bm & ~inner)
+    if len(bys) == 0:
+        return comp.round().clip(0, 255).astype(np.uint8), gt
+
+    n_limbs = int(rng.integers(LIMB_COUNT[0], LIMB_COUNT[1] + 1))
+    for _ in range(n_limbs):
+        size = max(24, int(min(w, h) * rng.uniform(*LIMB_FRAC)))
+        blob = _blob_mask(rng, size)
+        # attach: pick a boundary point, shift the blob centre outward
+        k = int(rng.integers(0, len(bys)))
+        cy, cx = by + int(bys[k]), bx + int(bxs[k])
+        out_frac = rng.uniform(*LIMB_OUTSIDE)
+        # outward direction: away from body bbox centre
+        vy, vx = cy - (by + bh / 2), cx - (bx + bw / 2)
+        nv = max(1.0, float(np.hypot(vy, vx)))
+        cy = int(cy + vy / nv * size * (out_frac - 0.5))
+        cx = int(cx + vx / nv * size * (out_frac - 0.5))
+        y0, x0 = cy - size // 2, cx - size // 2
+        if y0 < 0 or x0 < 0 or y0 + size > h or x0 + size > w:
+            continue
+        stroke_px = max(2, int(size * rng.uniform(0.03, 0.07)))
+        blob_img = Image.fromarray(np.round(blob * 255).astype(np.uint8), mode="L")
+        dil = np.asarray(blob_img.filter(ImageFilter.MaxFilter(stroke_px * 2 + 1)),
+                         np.float32) / 255.0
+        stroke_a = np.clip(dil - blob, 0.0, 1.0)
+        stroke_col = rng.uniform(5, 55, 3).astype(np.float32)
+        fill_col = page + rng.uniform(-5, 3, 3).astype(np.float32)
+        region = comp[y0:y0 + size, x0:x0 + size]
+        region = blob[..., None] * fill_col + (1 - blob[..., None]) * region
+        region = stroke_a[..., None] * stroke_col + (1 - stroke_a[..., None]) * region
+        # knuckle strokes: short arcs STARTING on the contour, reaching inward
+        n_kn = int(rng.integers(1, 4))
+        kn = Image.fromarray(np.zeros((size, size), dtype=np.uint8), mode="L")
+        kd = ImageDraw.Draw(kn)
+        bys2, bxs2 = np.nonzero((blob > 0.5) & (np.asarray(
+            blob_img.filter(ImageFilter.MinFilter(5)), np.float32) / 255.0 < 0.5))
+        for _k in range(n_kn):
+            if len(bys2) == 0:
+                break
+            j = int(rng.integers(0, len(bys2)))
+            ky, kx = int(bys2[j]), int(bxs2[j])
+            ang = rng.uniform(0, 2 * np.pi)
+            ln = size * rng.uniform(0.15, 0.35)
+            kd.line([kx, ky, int(kx + ln * np.cos(ang)), int(ky + ln * np.sin(ang))],
+                    fill=255, width=max(1, stroke_px - 1))
+        kn_a = (np.asarray(kn, np.float32) / 255.0) * blob
+        region = kn_a[..., None] * stroke_col + (1 - kn_a[..., None]) * region
+        comp[y0:y0 + size, x0:x0 + size] = region
+        gt[y0:y0 + size, x0:x0 + size] = np.maximum(gt[y0:y0 + size, x0:x0 + size], dil)
+
+    return comp.round().clip(0, 255).astype(np.uint8), gt
+
+
 def run(out_dir: Path, svg_dir: Path, count: int = DEFAULT_COUNT, seed: int = 33,
         white_bg_share: float = WHITE_BG_SHARE, outline: bool = False,
+        limb: bool = False,
         stem_prefix: str = "clip_", category: str = "clipart") -> int:
     out_dir = Path(out_dir)
     (out_dir / "im").mkdir(parents=True, exist_ok=True)
@@ -271,7 +413,9 @@ def run(out_dir: Path, svg_dir: Path, count: int = DEFAULT_COUNT, seed: int = 33
             skipped += 1
             continue
         rng = _item_rng(seed, stem)
-        if outline:
+        if limb:
+            rgb, gt = render_limb_sample(rng, svg_paths)
+        elif outline:
             rgb, gt = render_clipart_outline_sample(rng, svg_paths)
         else:
             rgb, gt = render_clipart_sample(rng, svg_paths, white_bg_share=white_bg_share)
@@ -295,9 +439,14 @@ def main() -> None:
     ap.add_argument("--count", type=int, default=DEFAULT_COUNT)
     ap.add_argument("--seed", type=int, default=33)
     ap.add_argument("--white-bg-share", type=float, default=WHITE_BG_SHARE)
+    ap.add_argument("--limb", action="store_true",
+                    help="edge-limb lesson pairs (spec 2026-07-29)")
+    ap.add_argument("--stem-prefix", default="clip_")
+    ap.add_argument("--category", default="clipart")
     a = ap.parse_args()
     run(Path(a.out_dir), Path(a.svg_dir), count=a.count, seed=a.seed,
-        white_bg_share=a.white_bg_share)
+        white_bg_share=a.white_bg_share, limb=a.limb,
+        stem_prefix=a.stem_prefix, category=a.category)
 
 
 if __name__ == "__main__":

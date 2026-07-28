@@ -134,3 +134,37 @@ def test_outline_run_contract(svg_dir, tmp_path):
     rows = [json.loads(l) for l in (out / "manifest.jsonl").read_text().splitlines()]
     assert [r["id"] for r in rows] == [f"clip2_{i:05d}" for i in range(3)]
     assert all(r["category"] == "clipart2" for r in rows)
+
+
+# ---- v18 edge-limb lesson (spec 2026-07-29) ----
+
+def test_limb_sample_gt_solid_and_deterministic(svg_dir):
+    paths = [svg_dir / "circle.svg"]
+    rng1 = mcl._item_rng(993, "limb_00000")
+    rgb1, gt1 = mcl.render_limb_sample(rng1, paths)
+    rng2 = mcl._item_rng(993, "limb_00000")
+    rgb2, gt2 = mcl.render_limb_sample(rng2, paths)
+    assert np.array_equal(rgb1, rgb2) and np.array_equal(gt1, gt2), "determinizm"
+    # gövde GT'de var
+    assert (gt1 > 0.9).mean() > 0.02
+    # uzuvlar: GT'si 1 olup görüntüsü sayfa-beyazı olan pikseller var
+    page_like = np.linalg.norm(rgb1.astype(np.float32) - 250.0, axis=-1) < 25
+    limb_white = page_like & (gt1 > 0.9)
+    assert limb_white.sum() > 200, "sayfa renkli uzuv dolgusu GT=1 olmalı"
+
+
+def test_limb_attaches_to_body(svg_dir):
+    """Uzuv gövde silüetine bitişik: GT bileşen sayısı 1 kalmalı (uzuvlar
+    kopuk adalar değil)."""
+    from scipy import ndimage
+    paths = [svg_dir / "circle.svg"]
+    n_multi = 0
+    for i in range(6):
+        rng = mcl._item_rng(993, f"limb_{i:05d}")
+        _, gt = mcl.render_limb_sample(rng, paths)
+        lab, n = ndimage.label(gt > 0.5)
+        sizes = np.sort(ndimage.sum(gt > 0.5, lab, range(1, n + 1)))[::-1]
+        # ana bileşen dışındaki parçalar toplamın %2'sinden küçük olmalı
+        if n > 1 and sizes[1:].sum() > 0.02 * sizes.sum():
+            n_multi += 1
+    assert n_multi <= 1, f"uzuvlar gövdeden kopuk ({n_multi}/6 örnek)"

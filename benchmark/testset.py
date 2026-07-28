@@ -14,6 +14,9 @@ CATEGORIES = {
     # sticker collages, real templates over element-colored pages, and the
     # dedicated probe category measured with fill_alpha/fill_hole.
     "typography_outline", "clipart2", "design_real_ambig", "fill_eq_bg",
+    # v18 lessons (spec 2026-07-29): edge-attached page-colored limbs and
+    # halftone/wash atmosphere with continuous density GT.
+    "limb", "atmosphere",
 }
 _KEYS = {"id", "image", "category", "gt_alpha"}
 

@@ -92,3 +92,63 @@ def test_haze_matting_thins_draining_page_like_haze_only():
     assert out[100, 100] > 0.9, "colored content keeps full alpha"
     out_off = pm.poster_alpha(a, counters="open", rgb=rgb, haze_matting=False)
     assert out_off[30, 100] > 0.9, "matting off -> untouched"
+
+
+def test_chromatic_rescue_restores_saturated_ink_the_model_erased():
+    """The rainbow lesson: on a flat page, saturated color far from the page
+    color is ink even when the model zeroed it; page-colored and near-page
+    (gray shadow) pixels are never resurrected."""
+    import numpy as np
+    a = np.zeros((200, 200), dtype=np.float32)
+    a[20:100, 20:180] = 1.0                                  # kept art block
+    rgb = np.full((200, 200, 3), 250.0, dtype=np.float32)    # white page
+    rgb[20:100, 20:180] = (40, 40, 40)                       # the kept ink
+    rgb[120:150, 20:180] = (0, 160, 220)                     # rainbow band, model erased
+    rgb[160:170, 20:180] = (215, 215, 215)                   # faint gray shadow
+    out = pm.poster_alpha(a, counters="open", rgb=rgb, haze_matting=False)
+    assert out[130:140, 60:140].min() > 0.9, "saturated band must come back solid"
+    assert out[164:168, 60:140].max() == 0.0, "near-page shadow stays removed"
+    out_norgb = pm.poster_alpha(a, counters="open", rgb=None, haze_matting=False)
+    assert out_norgb[130:140, 60:140].max() == 0.0, "no rgb -> no rescue"
+
+
+def test_chromatic_rescue_ignores_white_gaps_between_ink():
+    """Halftone/small-type lesson: page-colored gaps surrounded by colored
+    ink must NOT be resurrected — rescue judges each pixel's own color."""
+    import numpy as np
+    a = np.zeros((200, 200), dtype=np.float32)
+    a[20:100, 20:180] = 1.0
+    rgb = np.full((200, 200, 3), 250.0, dtype=np.float32)
+    rgb[20:100, 20:180] = (40, 40, 40)
+    # yoğun noktalı bant: 2px'lik nokta / 3px'lik beyaz boşluk dokusu
+    for y in range(140, 170, 5):
+        for x in range(20, 180, 5):
+            rgb[y:y+2, x:x+2] = (230, 60, 40)
+    out = pm.poster_alpha(a, counters="open", rgb=rgb, haze_matting=False)
+    gaps = np.all(rgb == 250.0, axis=-1)
+    gaps[:120] = False
+    assert out[gaps].max() < 0.3, "noktalar arası sayfa boşlukları şeffaf kalmalı"
+
+
+def test_page_colored_hesitant_hole_stays_open_on_white_page():
+    """O/D/G lesson: a counter whose interior IS the page stays open even
+    when the model hesitated; only non-page interiors may print solid."""
+    import numpy as np
+    a = np.zeros((200, 200), dtype=np.float32)
+    a[40:160, 40:160] = 1.0
+    a[96:102, 96:102] = 0.4          # kararsız KÜÇÜK iç boşluk (punto boşluğu)
+    rgb = np.full((200, 200, 3), 250.0, dtype=np.float32)
+    rgb[40:160, 40:160] = (30, 30, 30)
+    rgb[96:102, 96:102] = 250.0      # boşluğun içi sayfa rengi
+    out = pm.poster_alpha(a, counters="open", rgb=rgb, haze_matting=False)
+    assert out[97:101, 97:101].max() < 0.5, "küçük sayfa renkli boşluk açık kalmalı"
+    rgb2 = rgb.copy()
+    rgb2[96:102, 96:102] = (140, 140, 140)   # gri duman içi
+    out2 = pm.poster_alpha(a, counters="open", rgb=rgb2, haze_matting=False)
+    assert out2[97:101, 97:101].min() > 0.9, "sayfa-dışı kararsız boşluk dolmalı"
+    a3 = a.copy(); rgb3 = rgb.copy()
+    a3[96:102, 96:102] = 1.0
+    a3[70:130, 70:130] = np.minimum(a3[70:130, 70:130], 0.4)  # BÜYÜK beyaz cep
+    rgb3[70:130, 70:130] = 250.0
+    out3 = pm.poster_alpha(a3, counters="open", rgb=rgb3, haze_matting=False)
+    assert out3[90:110, 90:110].min() > 0.9, "yaprak ölçeğindeki beyaz cep dolu kalmalı"
