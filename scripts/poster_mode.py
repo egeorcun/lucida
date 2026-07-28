@@ -26,9 +26,9 @@ def poster_alpha(alpha: np.ndarray, keep_thresh: float = 0.3,
                  min_area_frac: float = 0.00005,
                  max_hole_frac: float = 0.25,
                  hole_alpha_gate: float = 0.12,
-                 counters: str = "open",
+                 counters: str = "auto",
                  rgb: np.ndarray | None = None,
-                 haze_matting: bool = False,
+                 haze_matting: bool | str = "auto",
                  haze_scale: float = 130.0) -> np.ndarray:
     """`counters` (user pick 2026-07-28: OPEN is the default):
     - "open" (apparel, DEFAULT): CONFIDENT-zero holes (letter counters) stay
@@ -38,8 +38,8 @@ def poster_alpha(alpha: np.ndarray, keep_thresh: float = 0.3,
     - "solid" (sticker): every small hole prints solid — the on-page look.
     Kept content is flattened to full opacity (posters are flat art); only
     the outer edge keeps the model's soft alpha."""
-    if counters not in ("open", "solid"):
-        raise ValueError(f"counters must be 'open' or 'solid', got {counters!r}")
+    if counters not in ("open", "solid", "auto"):
+        raise ValueError(f"counters must be 'open', 'solid' or 'auto', got {counters!r}")
     a = alpha.astype(np.float32)
     h, w = a.shape
     solid = a > keep_thresh
@@ -52,6 +52,18 @@ def poster_alpha(alpha: np.ndarray, keep_thresh: float = 0.3,
         comp = lab == i
         if comp.sum() >= min_area:
             keep |= comp
+
+    if counters == "auto":
+        # one discriminator, zero knobs (2026-07-28): a near-pure-white page
+        # means counters read as holes (open); a tinted/cream page means the
+        # page color doubles as ink and holes must print solid.
+        counters = "solid"
+        if rgb is not None:
+            probe = ~keep
+            if probe.sum() > 500:
+                pg = np.median(rgb[probe].reshape(-1, 3), axis=0)
+                if pg.min() > 243 and (pg.max() - pg.min()) < 8:
+                    counters = "open"
 
     # fill enclosed holes per kept component (bounded by max_hole_frac)
     filled = keep.copy()
@@ -125,6 +137,17 @@ def poster_alpha(alpha: np.ndarray, keep_thresh: float = 0.3,
     edge = keep & ~ndimage.binary_erosion(keep, iterations=2)
     out[edge] = a[edge]
 
+    if haze_matting == "auto" and rgb is not None:
+        # page-color heuristic (Stay Fresh regression, 2026-07-28): density
+        # matting is gold on WHITE-page glow posters (CHEESE) and poison on
+        # cream-ink designs whose elements share the page color. Auto turns
+        # it on only for a near-pure-white, low-chroma page.
+        probe = out < 0.05
+        if probe.sum() > 500:
+            pg = np.median(rgb[probe].reshape(-1, 3), axis=0)
+            haze_matting = bool(pg.min() > 243 and (pg.max() - pg.min()) < 8)
+        else:
+            haze_matting = False
     if haze_matting and rgb is not None:
         # the Ideogram-airiness lesson (CHEESE): the model keeps glow/smoke
         # near-opaque (fx training bias) while the reference renders it as
@@ -134,8 +157,13 @@ def poster_alpha(alpha: np.ndarray, keep_thresh: float = 0.3,
         removed = out < 0.05
         if removed.sum() > 500:
             page = np.median(rgb[removed].reshape(-1, 3), axis=0)
-            density = np.clip(np.linalg.norm(rgb - page, axis=-1) / haze_scale, 0.0, 1.0)
-            pagey = (density < 0.55) & (out > 0.05)
+            # halftone suppression: dotted textures inflate raw color
+            # distance and smuggled white residue past the gate — measure
+            # density on a median-smoothed image instead
+            smooth = np.stack([ndimage.median_filter(rgb[..., c], size=5)
+                               for c in range(3)], axis=-1)
+            density = np.clip(np.linalg.norm(smooth - page, axis=-1) / haze_scale, 0.0, 1.0)
+            pagey = (density < 0.8) & (out > 0.05)
             plab, pn = ndimage.label(pagey)
             boundary = keep & ~ndimage.binary_erosion(keep, iterations=3)
             for i in range(1, pn + 1):

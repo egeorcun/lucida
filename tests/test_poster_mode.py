@@ -63,7 +63,19 @@ def test_big_window_stays_open_in_all_modes():
 def test_invalid_mode_raises():
     import pytest
     with pytest.raises(ValueError):
-        pm.poster_alpha(_scene(), counters="auto")
+        pm.poster_alpha(_scene(), counters="banana")
+
+
+def test_counters_auto_resolves_by_page_color():
+    import numpy as np
+    a = _scene()
+    white_page = np.full((200, 200, 3), 250.0, dtype=np.float32)
+    cream_page = np.full((200, 200, 3), (246.0, 240.0, 214.0), dtype=np.float32)
+    open_like = pm.poster_alpha(a, counters="auto", rgb=white_page, haze_matting=False)
+    solid_like = pm.poster_alpha(a, counters="auto", rgb=cream_page, haze_matting=False)
+    # counter bolgesi: beyaz sayfada acik, krem sayfada dolu
+    assert open_like[85:95, 45:55].max() == 0.0
+    assert solid_like[85:95, 45:55].min() > 0.99
 
 
 def test_haze_matting_thins_draining_page_like_haze_only():
