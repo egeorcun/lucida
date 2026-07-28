@@ -4,7 +4,7 @@ FREE CPU Colab session (~1.5h; no font pool and no train-tar extraction —
 neither generator needs backgrounds).
 
 Pools produced (deltas shipped tar-first, then loose):
-- data/train_limb        4000  limb_*  (page-colored stroked limbs attached
+- data/train_limb        6000  limb_*  (page-colored stroked limbs attached
   to a body's silhouette edge — the YH gloves lesson)
 - data/train_atmosphere  4000  atmo_*  (halftone/wash smoke + glow bursts,
   GT = DENSITY, not the dot mask — the CHEESE lesson)
@@ -39,7 +39,7 @@ TAR_SUBDIR = "tar"
 SVG_DIR = Path("/content/openclipart_svgs")
 SVG_SAMPLE = 20000
 
-LIMB_OUT = Path("data/train_limb");             LIMB_COUNT = 4000; LIMB_SEED = 111
+LIMB_OUT = Path("data/train_limb");             LIMB_COUNT = 6000; LIMB_SEED = 111
 ATMO_OUT = Path("data/train_atmosphere");       ATMO_COUNT = 4000; ATMO_SEED = 88
 PROBE_LIMB = Path("data/testset_limb")
 PROBE_ATMO = Path("data/testset_atmosphere")

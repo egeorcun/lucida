@@ -447,17 +447,17 @@ Resumes from epoch_16 (the 1536 epoch bought nothing) with LR_SCALE=1.0 —
 relearning a deletion bias needs real learning pressure."""
 
 SAMPLER_PRESET_V18: dict[str, float] = {
-    "design_real": 0.13,
+    "design_real": 0.12,
     "design_real_ambig": 0.07,
     "typography": 0.07,
-    "typography_outline": 0.12,
-    "clipart": 0.06,
+    "typography_outline": 0.11,
+    "clipart": 0.05,
     "clipart2": 0.06,
-    "limb": 0.05,
-    "atmosphere": 0.06,
-    "transparent": 0.10,
+    "limb": 0.09,
+    "atmosphere": 0.07,
+    "transparent": 0.09,
     "complex": 0.09,
-    "illustration": 0.06,
+    "illustration": 0.05,
     "design": 0.04,
     "text": 0.04,
     "fx": 0.02,
@@ -473,9 +473,11 @@ colored limbs attached at the silhouette edge (YH gloves, raw alpha
 0.03-0.17, statistics inseparable from letter counters) and halftone
 smoke/glow fields printed at alpha ~1.0 where the Ideogram reference
 renders ink DENSITY. `limb` (make_clipart --limb) and `atmosphere`
-(make_atmosphere, continuous density GT) teach exactly those; the v17
-recipe (fg_hinge 3.0, LR_SCALE 1.0) is otherwise unchanged, resuming from
-epoch_17."""
+(make_atmosphere, continuous density GT) teach exactly those at a 16%
+combined dose — the 2026-07-26 lesson that a 3k-pair category at one epoch
+underdoses (clipart2 never taught the gloves) sets limb at 0.09 with a
+6k pool. The v17 recipe (fg_hinge 3.0, LR_SCALE 1.0) is otherwise
+unchanged, resuming from epoch_17."""
 
 SAMPLER_PRESETS: dict[str, dict[str, float]] = {
     "v1": SAMPLER_PRESET_V1,

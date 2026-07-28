@@ -20,7 +20,7 @@ with SAMPLER_PRESET_V18 injecting two new synthetic categories.
 
 ## Data
 
-### `limb` — scripts/make_clipart.py, render_limb_sample (4,000 pairs)
+### `limb` — scripts/make_clipart.py, render_limb_sample (6,000 pairs)
 
 - White page (the ambiguity is white-on-white; ~0.85 white, rest pale flat).
 - One BODY: random SVG, target 0.45-0.70 of canvas short side, center-biased.
@@ -55,9 +55,11 @@ with SAMPLER_PRESET_V18 injecting two new synthetic categories.
 
 ## SAMPLER_PRESET_V18
 
-limb .05, atmosphere .06; shaved from: design_real .16→.13,
-typography_outline .14→.12, transparent .12→.10, complex .10→.09,
-typography .08→.07, design_real_ambig .08→.07, fx .03→.02. Sum stays 1.0.
+limb .09, atmosphere .07 (16% combined — the 2026-07-26 underdose lesson:
+clipart2 at 3k/1 epoch never taught the gloves); shaved from: design_real
+.16→.12, typography_outline .14→.11, transparent .12→.09, complex .10→.09,
+typography .08→.07, design_real_ambig .08→.07, clipart .06→.05,
+illustration .06→.05, fx .03→.02. Sum stays 1.0.
 
 ## Gates (v17 discipline — no blind spends)
 
