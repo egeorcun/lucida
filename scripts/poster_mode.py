@@ -99,8 +99,25 @@ def poster_alpha(alpha: np.ndarray, keep_thresh: float = 0.3,
                 keep &= ~comp
                 filled &= ~comp
 
-    out = a * keep                     # decisiveness: nothing outside survives
-    out = np.maximum(out, filled.astype(np.float32))  # holes print solid
+    # decisiveness with GLOW RESPECT (the CHEESE lesson, 2026-07-28):
+    # confident foreground flattens to solid; the model's mid-alpha keeps
+    # its softness ONLY where the region drains to the silhouette edge (a
+    # glow/airbrush field fading into the page — flattening those turned
+    # halos into opaque white slabs while Ideogram kept them soft). Interior
+    # -locked mid-alpha pockets (smoky gloves) still flatten solid.
+    out = a * keep
+    confident = keep & (a >= 0.7)
+    out[confident] = 1.0
+    mid = keep & ~confident
+    if mid.any():
+        boundary = keep & ~ndimage.binary_erosion(keep, iterations=3)
+        mlab, mn = ndimage.label(mid)
+        for i in range(1, mn + 1):
+            region = mlab == i
+            if not (region & boundary).any():   # interior-locked pocket
+                out[region] = 1.0
+    fill_new = filled & ~keep
+    out[fill_new] = 1.0
     # restore the soft outer edge: original alpha wins in the edge band
     edge = keep & ~ndimage.binary_erosion(keep, iterations=2)
     out[edge] = a[edge]
