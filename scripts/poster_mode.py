@@ -165,18 +165,31 @@ def poster_alpha(alpha: np.ndarray, keep_thresh: float = 0.3,
         mlab, mn = ndimage.label(mid)
         for i in range(1, mn + 1):
             region = mlab == i
-            if not (region & boundary).any():   # interior-locked pocket
-                if counters == "open" and page_dist is not None and \
-                        region.sum() < 0.0012 * h * w and \
-                        float(np.median(page_dist[region])) < 0.3 * haze_scale:
-                    # O/D/G lesson (2026-07-28): a SMALL page-colored pocket
-                    # the model hesitated on is the page showing through a
-                    # counter — open it. The size cap protects petal-scale
-                    # white pockets (the daisy-bite regression): at element
-                    # scale, page-colored means white ink, not page.
-                    out[region] = 0.0
-                else:
+            if (region & boundary).any():
+                # HALF-CONFIDENT WHITE ELEMENT (the v18 gloves, 2026-07-30):
+                # after the limb lesson the model answers "probably element"
+                # (raw ~0.5) on page-colored edge-attached limbs it used to
+                # erase (~0.1-0.3). A draining page-colored region the model
+                # scores >=0.45 is an element — print it SOLID instead of
+                # leaving a half-ghost for the haze stage to melt. Chromatic
+                # glows are untouched (page_dist gate).
+                if page_dist is not None and region.sum() >= 0.0012 * h * w and \
+                        float(np.median(page_dist[region])) < 0.3 * haze_scale and \
+                        float(a[region].mean()) >= 0.45:
                     out[region] = 1.0
+                continue
+            # interior-locked pocket
+            if counters == "open" and page_dist is not None and \
+                    region.sum() < 0.0012 * h * w and \
+                    float(np.median(page_dist[region])) < 0.3 * haze_scale:
+                # O/D/G lesson (2026-07-28): a SMALL page-colored pocket
+                # the model hesitated on is the page showing through a
+                # counter — open it. The size cap protects petal-scale
+                # white pockets (the daisy-bite regression): at element
+                # scale, page-colored means white ink, not page.
+                out[region] = 0.0
+            else:
+                out[region] = 1.0
     fill_new = filled & ~keep
     out[fill_new] = 1.0
     # restore the soft outer edge: original alpha wins in the edge band
@@ -306,6 +319,17 @@ def poster_alpha(alpha: np.ndarray, keep_thresh: float = 0.3,
                     if ring.any() and float(
                             (pdist[ring] > 1.9 * haze_scale).mean()) >= 0.5:
                         continue    # sealed inside solid dark art (nose stipple)
+                # PAGE-CONTACT ANCHOR (the carved-face lesson, 2026-07-30):
+                # "drains to the boundary band" is topology-fragile — one
+                # flipped edge pixel connected face-interior highlights to
+                # the boundary and the melt carved a forehead. Atmosphere by
+                # definition bleeds into the REMOVED page, so melt only
+                # regions whose ring actually touches removed pixels. Sealed
+                # whites (eye whites, skin highlights, stroke-sealed gloves)
+                # never do, whatever the region graph says.
+                ring = ndimage.binary_dilation(region, iterations=3) & ~region
+                if not ring.any() or float((out[ring] < 0.05).mean()) < 0.15:
+                    continue
                 out[region] = np.minimum(out[region],
                                          atm_curve[region].astype(np.float32))
     return np.clip(out, 0.0, 1.0)

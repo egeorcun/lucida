@@ -152,3 +152,20 @@ def test_page_colored_hesitant_hole_stays_open_on_white_page():
     rgb3[70:130, 70:130] = 250.0
     out3 = pm.poster_alpha(a3, counters="open", rgb=rgb3, haze_matting=False)
     assert out3[90:110, 90:110].min() > 0.9, "yaprak ölçeğindeki beyaz cep dolu kalmalı"
+
+
+def test_half_confident_white_edge_element_prints_solid():
+    """v18 eldiven dersi: kenara bağlı, sayfa renkli, model ~0.5 veren bölge
+    dolu basılır; küçük veya düşük güvenli olanlar etkilenmez."""
+    import numpy as np
+    a = np.zeros((200, 200), dtype=np.float32)
+    a[40:160, 40:120] = 1.0                    # gövde
+    a[80:130, 120:170] = 0.55                  # kenara bağlı beyaz uzuv (yarı emin)
+    rgb = np.full((200, 200, 3), 250.0, dtype=np.float32)
+    rgb[40:160, 40:120] = (30, 30, 30)
+    rgb[80:130, 120:170] = 250.0               # uzuv sayfa renkli
+    out = pm.poster_alpha(a, counters="open", rgb=rgb, haze_matting=False)
+    assert out[95:115, 135:160].min() > 0.95, "yarı emin beyaz uzuv dolu olmalı"
+    a2 = a.copy(); a2[80:130, 120:170] = 0.35  # düşük güven -> eski davranış
+    out2 = pm.poster_alpha(a2, counters="open", rgb=rgb, haze_matting=False)
+    assert out2[95:115, 135:160].max() < 0.95, "düşük güvenli uzuv dolu basılmamalı"
