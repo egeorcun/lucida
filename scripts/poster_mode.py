@@ -90,13 +90,11 @@ def poster_alpha(alpha: np.ndarray, keep_thresh: float = 0.3,
                 pg = np.median(rgb[probe].reshape(-1, 3), axis=0)
                 if pg.min() > 243 and (pg.max() - pg.min()) < 8:
                     counters = "open"
-                elif pg.max() < 80 and (pg.max() - pg.min()) < 12:
-                    # the Ideogram black-page lesson (2026-07-30, overthink
-                    # duel): on a flat DARK page the pockets between white
-                    # lettering are the page showing through — Ideogram
-                    # removes them; keeping them printed solid black blobs.
-                    # Cream/tinted pages stay solid (the Stay Fresh rule).
-                    counters = "open"
+                # (2026-07-30) a dark-flat-page variant of this rule was
+                # tried (the overthink duel) and REVERTED the same day: it
+                # gutted full-bleed dark designs (the AImpala badge interior
+                # and its I/l counters) — dark pocket vs dark design is a
+                # semantic call, filed for v19 training data instead.
 
     # fill enclosed holes per kept component (bounded by max_hole_frac)
     filled = keep.copy()
