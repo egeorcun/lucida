@@ -22,9 +22,21 @@ side-by-side on dark checker, eye + pixel verdicts.
 | Halftone smoke (CHEESE) | IDE, slight | their dark smoke sits at 0.5-0.65; our fitted curve leaves milkier whites |
 | Airbrush glow (rainbow) | IDE, slight | their glow stays full and soft; our color-proximity melt clips the fade |
 
-Bottom line: on flat POD graphics (the im2lazy core) we now WIN or tie most
-classes; Ideogram's remaining edge is one thing only — SEMANTIC knowledge of
-what whites belong to the subject (fur, gloves, glow, smoke).
+## OFFICIAL VERDICT (user's eye, 2026-07-30 — overrides the table above)
+
+**12-1 Ideogram. Petersburg is our only win.** The pixel-metric table above
+records where each output is *semantically* closer to the source; the user's
+eye judges the *finished product*, and by that standard Ideogram wins almost
+everywhere. What the metrics missed:
+
+1. **Fail soft, not loud.** Ideogram's failure mode is FADING (quiet, still
+   looks like a clean design); ours is RESIDUE/CARVING/MILK (loud, looks
+   broken). The eye forgives fading far more than speckle.
+2. **Finish package**: feathered edges everywhere, color decontamination
+   (no page fringe), uniform translucency on textures. Our hard-binarized
+   interiors make every imperfection shout.
+3. Vivid-color solidity only beats softness when the cut is PERFECT —
+   otherwise softness wins the eye.
 
 ## Lessons to steal (v19)
 
