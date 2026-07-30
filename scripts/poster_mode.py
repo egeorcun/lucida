@@ -194,6 +194,21 @@ def poster_alpha(alpha: np.ndarray, keep_thresh: float = 0.3,
         for i in range(1, mn + 1):
             region = mlab == i
             if (region & boundary).any():
+                if counters == "open" and page_dist is not None and \
+                        region.sum() < 0.0012 * h * w and \
+                        float(np.median(page_dist[region])) < 0.3 * haze_scale and \
+                        float(a[region].mean()) < 0.7 and \
+                        (subject_mask is None or
+                         float(subject_mask[region].mean()) < 0.4):
+                    # the HEARD-A lesson (2026-07-30): a TINY page-colored
+                    # hesitant counter can leak to the boundary band through
+                    # a needle of anti-aliased edge pixels and dodge the
+                    # pocket rules as "draining" — it then prints as milk.
+                    # Same counter signature (small + page-colored + model
+                    # unsure) -> open. Subject interiors are exempt (the
+                    # referee's glove knuckle gaps).
+                    out[region] = 0.0
+                    continue
                 # HALF-CONFIDENT WHITE ELEMENT (the v18 gloves, 2026-07-30):
                 # after the limb lesson the model answers "probably element"
                 # (raw ~0.5) on page-colored edge-attached limbs it used to
@@ -226,6 +241,23 @@ def poster_alpha(alpha: np.ndarray, keep_thresh: float = 0.3,
     # restore the soft outer edge: original alpha wins in the edge band
     edge = keep & ~ndimage.binary_erosion(keep, iterations=2)
     out[edge] = a[edge]
+
+    if subject_mask is not None and counters == "open" and page_dist is not None:
+        # COLOR-TOPOLOGY COUNTER RULE (the HEARD-A remnant, 2026-07-30):
+        # a small page-colored blob fully enclosed by ink is a letter
+        # counter whatever the model's alpha says (the v17 fill lesson
+        # sometimes prints them confidently). Gated on the referee: subject
+        # interiors (eye whites, glove gaps) are exempt, and without a
+        # referee the rule stays off entirely.
+        ink = page_dist > 0.5 * haze_scale
+        enclosed = ndimage.binary_fill_holes(ink) & ~ink
+        pagey_blob = enclosed & (page_dist < 0.3 * haze_scale) & \
+            ~subject_mask.astype(bool)
+        blab, bn = ndimage.label(pagey_blob)
+        if bn:
+            bsizes = ndimage.sum(pagey_blob, blab, range(1, bn + 1))
+            for bi in np.nonzero((bsizes > 60) & (bsizes < 0.0012 * h * w))[0]:
+                out[blab == (bi + 1)] = 0.0
 
     if haze_matting == "auto" and rgb is not None:
         # page-color heuristic (Stay Fresh regression, 2026-07-28): density
