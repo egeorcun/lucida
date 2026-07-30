@@ -169,3 +169,26 @@ def test_half_confident_white_edge_element_prints_solid():
     a2 = a.copy(); a2[80:130, 120:170] = 0.35  # düşük güven -> eski davranış
     out2 = pm.poster_alpha(a2, counters="open", rgb=rgb, haze_matting=False)
     assert out2[95:115, 135:160].max() < 0.95, "düşük güvenli uzuv dolu basılmamalı"
+
+
+def test_subject_mask_referee_protects_and_fills():
+    """SAM3 hakemi (2026-07-30): maske içi kararsız beyaz dolar, maske dışı
+    davranış maskesizle birebir aynı kalır."""
+    import numpy as np
+    a = np.zeros((200, 200), dtype=np.float32)
+    a[40:160, 40:120] = 1.0                    # gövde
+    a[80:130, 120:170] = 0.2                   # kenara bağlı beyaz uzuv (eldiven, zayıf)
+    rgb = np.full((200, 200, 3), 250.0, dtype=np.float32)
+    rgb[40:160, 40:120] = (30, 30, 30)
+    sm = np.zeros((200, 200), dtype=bool)
+    sm[40:160, 40:170] = True                  # özne: gövde + uzuv
+    out = pm.poster_alpha(a, counters="open", rgb=rgb, haze_matting=False,
+                          subject_mask=sm)
+    assert out[95:115, 135:160].min() > 0.9, "özne içi eldiven dolmalı"
+    out_none = pm.poster_alpha(a, counters="open", rgb=rgb, haze_matting=False)
+    assert out_none[95:115, 135:160].max() < 0.5, "maskesiz eski davranış"
+    # maske dışında birebir aynılık: maskeyi tamamen alakasız köşeye koy
+    sm2 = np.zeros((200, 200), dtype=bool); sm2[:10, :10] = True
+    out2 = pm.poster_alpha(a, counters="open", rgb=rgb, haze_matting=False,
+                           subject_mask=sm2)
+    assert np.allclose(out2, out_none), "sessiz maske çıktıyı değiştirmemeli"

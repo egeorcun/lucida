@@ -33,7 +33,8 @@ def poster_alpha(alpha: np.ndarray, keep_thresh: float = 0.3,
                  haze_ink_gate: float = 0.35,
                  haze_cov_radius: float = 0.08,
                  haze_cov_lo: float = 0.20,
-                 haze_cov_hi: float = 0.60) -> np.ndarray:
+                 haze_cov_hi: float = 0.60,
+                 subject_mask: np.ndarray | None = None) -> np.ndarray:
     """`counters` (user pick 2026-07-28: OPEN is the default):
     - "open" (apparel, DEFAULT): CONFIDENT-zero holes (letter counters) stay
       transparent and kept islands floating inside them (counter drips) are
@@ -41,7 +42,16 @@ def poster_alpha(alpha: np.ndarray, keep_thresh: float = 0.3,
       solid — decisiveness in both directions;
     - "solid" (sticker): every small hole prints solid — the on-page look.
     Kept content is flattened to full opacity (posters are flat art); only
-    the outer edge keeps the model's soft alpha."""
+    the outer edge keeps the model's soft alpha.
+
+    `subject_mask` (the SAM3 referee, 2026-07-30): an optional boolean mask
+    of SUBJECT instances (characters, animals, gloves, badges) from a
+    semantic model. Used asymmetrically — only as PROTECTIVE evidence:
+    pixels inside the mask are never melted by the haze stage, page-colored
+    pockets inside it never open, and hesitant page-colored regions inside
+    it print solid (the gloves). Where the mask is silent, behavior is
+    identical to subject_mask=None, so a missed concept can never regress
+    the output."""
     if counters not in ("open", "solid", "auto"):
         raise ValueError(f"counters must be 'open', 'solid' or 'auto', got {counters!r}")
     a = alpha.astype(np.float32)
@@ -68,6 +78,14 @@ def poster_alpha(alpha: np.ndarray, keep_thresh: float = 0.3,
             page_dist = None
     else:
         page_dist = None
+    if subject_mask is not None:
+        sm = subject_mask.astype(bool)
+        assert sm.shape == a.shape, "subject_mask shape mismatch"
+        # THE GLOVES RULE: hesitant page-colored pixels INSIDE a subject
+        # instance are the subject's own whites — lift them to solid before
+        # any silhouette decision.
+        lift = sm & (a > 0.05) & (a < keep_thresh + 0.4)
+        a = np.where(lift, np.maximum(a, 0.95), a)
     solid = a > keep_thresh
     lab, n = ndimage.label(solid)
     if n == 0:
@@ -116,6 +134,11 @@ def poster_alpha(alpha: np.ndarray, keep_thresh: float = 0.3,
             if hole.sum() > max_hole_frac * bbox_area:
                 continue
             if counters == "solid":
+                filled[y0:y1, x0:x1] |= hole
+                continue
+            if subject_mask is not None and \
+                    subject_mask[y0:y1, x0:x1][hole].mean() > 0.6:
+                # referee: hole inside a subject instance -> print solid
                 filled[y0:y1, x0:x1] |= hole
                 continue
             if pd_box is not None and hole.sum() < 0.0012 * h * w and \
@@ -184,6 +207,9 @@ def poster_alpha(alpha: np.ndarray, keep_thresh: float = 0.3,
                     out[region] = 1.0
                 continue
             # interior-locked pocket
+            if subject_mask is not None and float(subject_mask[region].mean()) > 0.6:
+                out[region] = 1.0    # referee: pocket inside a subject -> solid
+                continue
             if counters == "open" and page_dist is not None and \
                     region.sum() < 0.0012 * h * w and \
                     float(np.median(page_dist[region])) < 0.3 * haze_scale:
@@ -335,6 +361,9 @@ def poster_alpha(alpha: np.ndarray, keep_thresh: float = 0.3,
                 ring = ndimage.binary_dilation(region, iterations=3) & ~region
                 if not ring.any() or float((out[ring] < 0.05).mean()) < 0.15:
                     continue
-                out[region] = np.minimum(out[region],
-                                         atm_curve[region].astype(np.float32))
+                if subject_mask is not None:
+                    sel = region & ~subject_mask.astype(bool)   # referee: subject pixels never melt
+                else:
+                    sel = region
+                out[sel] = np.minimum(out[sel], atm_curve[sel].astype(np.float32))
     return np.clip(out, 0.0, 1.0)
