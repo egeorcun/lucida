@@ -367,3 +367,26 @@ def poster_alpha(alpha: np.ndarray, keep_thresh: float = 0.3,
                     sel = region
                 out[sel] = np.minimum(out[sel], atm_curve[sel].astype(np.float32))
     return np.clip(out, 0.0, 1.0)
+
+
+def decontaminate(rgb: np.ndarray, alpha: np.ndarray,
+                  page: np.ndarray | None = None,
+                  min_alpha: float = 0.2) -> np.ndarray:
+    """Foreground color recovery (the milky-whites lesson, 2026-07-30):
+    a semi-transparent pixel still carries the PAGE color mixed in — on a
+    dark garment it renders as milk. Invert pixel = a*fg + (1-a)*page to
+    recover fg; Ideogram ships decontaminated color, which is half of why
+    its smoke reads dark instead of milky. `page` defaults to the median
+    color of removed pixels. Returns a new RGB float array."""
+    rgb = rgb.astype(np.float32)
+    a = alpha.astype(np.float32)
+    if page is None:
+        removed = a < 0.05
+        page = (np.median(rgb[removed].reshape(-1, 3), axis=0)
+                if removed.sum() > 500 else np.float32([255.0, 255.0, 255.0]))
+    fg = rgb.copy()
+    sel = (a > 0.05) & (a < 0.95)
+    aa = a[sel][:, None]
+    fg[sel] = np.clip((rgb[sel] - (1.0 - aa) * page) / np.maximum(aa, min_alpha),
+                      0.0, 255.0)
+    return fg

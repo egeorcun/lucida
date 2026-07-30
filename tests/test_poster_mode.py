@@ -192,3 +192,18 @@ def test_subject_mask_referee_protects_and_fills():
     out2 = pm.poster_alpha(a, counters="open", rgb=rgb, haze_matting=False,
                            subject_mask=sm2)
     assert np.allclose(out2, out_none), "sessiz maske çıktıyı değiştirmemeli"
+
+
+def test_decontaminate_recovers_foreground_color():
+    """Süt dersi: beyaz sayfayla karışmış yarı saydam gri, gerçek koyu
+    mürekkep rengine geri çözülür; opak ve silinmiş pikseller değişmez."""
+    import numpy as np
+    rgb = np.full((50, 50, 3), 250.0, dtype=np.float32)
+    alpha = np.zeros((50, 50), dtype=np.float32)
+    rgb[10:20, 10:20] = 30.0;  alpha[10:20, 10:20] = 1.0      # opak mürekkep
+    # gerçek fg=50 gri, alfa 0.5, sayfa 250 -> görünen piksel 150
+    rgb[30:40, 10:20] = 150.0; alpha[30:40, 10:20] = 0.5
+    fg = pm.decontaminate(rgb, alpha)
+    assert np.allclose(fg[10:20, 10:20], 30.0), "opak değişmez"
+    assert np.allclose(fg[0, 0], 250.0), "silinen değişmez"
+    assert abs(float(fg[35, 15, 0]) - 50.0) < 2.0, "yarı saydam fg geri çözülür"
