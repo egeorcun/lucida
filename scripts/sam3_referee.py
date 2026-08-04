@@ -26,6 +26,52 @@ PROMPT_BATTERY = (
 )
 SCORE_MIN = 0.60
 
+# auto_prompts vocabulary: CLIP zero-shot picks which concepts are present,
+# SAM3 then segments only those. ABSTAIN classes absorb subject-less designs
+# (pure lettering, landscapes) so softmax cannot hallucinate a subject.
+AUTO_SUBJECTS = (
+    "cartoon character", "person", "woman", "man", "animal", "dog", "cat",
+    "tiger", "bird", "bear", "glove", "hand", "shoe", "flower",
+    "badge emblem", "mascot", "robot", "skull", "car", "food", "cheese",
+    "pumpkin", "ghost", "razor", "astronaut", "deer", "monster", "baby",
+    "dinosaur", "fish",
+)
+AUTO_ABSTAIN = (
+    "text lettering only", "typography quote design", "landscape scenery",
+    "abstract pattern", "logo wordmark",
+)
+
+_clip = None
+_clip_proc = None
+
+
+def auto_prompts(image: Image.Image, top_k: int = 4, prob_min: float = 0.10,
+                 device: str | None = None) -> tuple[str, ...]:
+    """Pick SAM3 concept prompts automatically: CLIP zero-shot ranks a
+    design-domain vocabulary; abstain classes win on subject-less designs
+    and the fixed PROMPT_BATTERY is returned as the safe fallback. SAM3
+    self-filters absent concepts (returns zero instances), so a borderline
+    pick costs inference time, never correctness."""
+    global _clip, _clip_proc
+    if device is None:
+        device = "mps" if torch.backends.mps.is_available() else (
+            "cuda" if torch.cuda.is_available() else "cpu")
+    if _clip is None:
+        from transformers import CLIPModel, CLIPProcessor
+        _clip = CLIPModel.from_pretrained("openai/clip-vit-base-patch32").to(device).eval()
+        _clip_proc = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
+    vocab = list(AUTO_SUBJECTS) + list(AUTO_ABSTAIN)
+    inputs = _clip_proc(text=[f"a design featuring {c}" for c in vocab],
+                        images=image, return_tensors="pt", padding=True).to(device)
+    with torch.no_grad():
+        probs = _clip(**inputs).logits_per_image.softmax(dim=-1)[0]
+    ranked = sorted(zip(vocab, probs.tolist()), key=lambda kv: -kv[1])
+    top = [(c, p) for c, p in ranked[:5] if p > prob_min]
+    subjects = [c for c, _ in top if c in AUTO_SUBJECTS][:top_k]
+    if not subjects or (top and top[0][0] in AUTO_ABSTAIN):
+        return PROMPT_BATTERY
+    return tuple(dict.fromkeys(subjects + ["glove", "hand"]))
+
 _model = None
 _processor = None
 
