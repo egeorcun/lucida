@@ -430,3 +430,29 @@ def decontaminate(rgb: np.ndarray, alpha: np.ndarray,
     fg[sel] = np.clip((rgb[sel] - (1.0 - aa) * page) / np.maximum(aa, min_alpha),
                       0.0, 255.0)
     return fg
+
+
+def defringe(rgb: np.ndarray, alpha: np.ndarray, band: int = 3,
+             max_pull: int = 8) -> np.ndarray:
+    """Edge fringe removal (the glowing-P lesson, 2026-08-05): anti-aliased
+    edge pixels carry page-contaminated color at near-full alpha, so black
+    art wears a bright line on dark garments. decontaminate() cannot see
+    them (alpha ~1). The fix is the classic defringe: pull each edge-band
+    pixel's COLOR from its nearest safe-interior pixel — ink color runs to
+    the very edge, softness lives in alpha alone. Thin strokes with no
+    reachable interior (distance > max_pull) keep their color."""
+    rgb = rgb.astype(np.float32)
+    a = alpha.astype(np.float32)
+    kept = a > 0.02
+    boundary_out = ~kept
+    dist_out = ndimage.distance_transform_edt(~boundary_out)
+    edge_band = kept & (dist_out <= band)
+    interior = ndimage.binary_erosion(a > 0.9, iterations=band + 1)
+    if not interior.any() or not edge_band.any():
+        return rgb
+    dist_int, (iy, ix) = ndimage.distance_transform_edt(~interior,
+                                                        return_indices=True)
+    out = rgb.copy()
+    sel = edge_band & (dist_int <= max_pull)
+    out[sel] = rgb[iy[sel], ix[sel]]
+    return out

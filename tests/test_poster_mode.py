@@ -207,3 +207,23 @@ def test_decontaminate_recovers_foreground_color():
     assert np.allclose(fg[10:20, 10:20], 30.0), "opak değişmez"
     assert np.allclose(fg[0, 0], 250.0), "silinen değişmez"
     assert abs(float(fg[35, 15, 0]) - 50.0) < 2.0, "yarı saydam fg geri çözülür"
+
+
+def test_defringe_pulls_ink_color_to_the_edge():
+    """Parlayan-P dersi: kenar bandındaki gri (sayfa karışmış) pikseller iç
+    mürekkep rengini alır; içi olmayan ince çizgiler dokunulmaz kalır."""
+    import numpy as np
+    rgb = np.full((60, 60, 3), 250.0, dtype=np.float32)
+    alpha = np.zeros((60, 60), dtype=np.float32)
+    rgb[20:40, 20:40] = 10.0                    # siyah blok
+    alpha[20:40, 20:40] = 1.0
+    rgb[19, 20:40] = 140.0; alpha[19, 20:40] = 0.98   # kirli AA kenarı (gri, yüksek alfa)
+    out = pm.defringe(rgb, alpha)
+    assert float(out[19, 30, 0]) < 30, "kenar pikseli iç siyahı almalı"
+    assert float(out[30, 30, 0]) == 10.0, "iç değişmez"
+    # içi olmayan ince çizgi: 1px'lik uzak çizgi rengini korur
+    rgb2 = np.full((60, 60, 3), 250.0, dtype=np.float32)
+    a2 = np.zeros((60, 60), dtype=np.float32)
+    rgb2[5, 5:15] = 80.0; a2[5, 5:15] = 0.9
+    out2 = pm.defringe(rgb2, a2)
+    assert float(out2[5, 10, 0]) == 80.0, "ulaşılamaz iç -> renk korunur"
