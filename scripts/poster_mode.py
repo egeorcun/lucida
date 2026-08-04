@@ -81,6 +81,14 @@ def poster_alpha(alpha: np.ndarray, keep_thresh: float = 0.3,
     if subject_mask is not None:
         sm = subject_mask.astype(bool)
         assert sm.shape == a.shape, "subject_mask shape mismatch"
+        # EDGE HALO GUARD (2026-08-05): SAM3 masks are coarse (1008px) and
+        # bleed a few pixels past the ink contour; lifting that ring turned
+        # page pixels into a white halo. The referee speaks about REGIONS,
+        # never edges — erode the mask so every edge decision stays with
+        # Lucida's own alpha.
+        er = max(3, int(0.005 * min(h, w)))
+        sm = ndimage.binary_erosion(sm, iterations=er)
+        subject_mask = sm
         # THE GLOVES RULE: hesitant page-colored pixels INSIDE a subject
         # instance are the subject's own whites — lift them to solid before
         # any silhouette decision.
