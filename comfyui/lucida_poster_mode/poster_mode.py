@@ -268,6 +268,14 @@ def poster_alpha(alpha: np.ndarray, keep_thresh: float = 0.3,
             if i in main_ids:
                 continue
             comp = comp_lab2 == i
+            # a NON-page-colored island is an ELEMENT, not a drip (the
+            # sparkle lesson, 2026-08-05): counter drips are page-colored
+            # milk remnants left inside letter counters; a distinct-colored
+            # sparkle floating in an enclosed page pocket is design content
+            # the model kept on purpose.
+            if page_dist is not None and \
+                    float(np.median(page_dist[comp])) >= 0.3 * haze_scale:
+                continue
             grown = ndimage.binary_dilation(comp, iterations=3)
             # island whose neighborhood is inside another component's filled body
             surroundings = (whole & ~keep) if counters == "open" \
@@ -294,10 +302,16 @@ def poster_alpha(alpha: np.ndarray, keep_thresh: float = 0.3,
             if (region & boundary).any():
                 if counters == "open" and page_dist is not None and \
                         region.sum() < 0.0012 * h * w and \
-                        float(np.median(page_dist[region])) < 0.3 * haze_scale and \
+                        float(np.percentile(page_dist[region], 75)) < 0.22 * haze_scale and \
                         float(a[region].mean()) < 0.7 and \
                         (subject_mask is None or
                          float(subject_mask[region].mean()) < 0.4):
+                    # TIGHT color gate, p75 not median (the sparkle lesson,
+                    # 2026-08-05): a pale sparkle element on a lilac page
+                    # sits at Euclid p75 ~35 while true milk remnants sit
+                    # at ~14 — the shared 0.3-scale gate (39) swallowed the
+                    # element, 0.22-scale (28.6) separates them cleanly. A
+                    # true HEARD-A remnant is page-colored throughout.
                     # the HEARD-A lesson (2026-07-30): a TINY page-colored
                     # hesitant counter can leak to the boundary band through
                     # a needle of anti-aliased edge pixels and dodge the
