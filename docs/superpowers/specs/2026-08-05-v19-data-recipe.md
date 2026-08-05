@@ -19,6 +19,8 @@ multiplex SAM3 in ComfyUI missing an instance the full model catches).
 | 2 | Pumpkin peace-sign hands | cream fills at median **0.001** — confident zero | referee hole-fill (via "cartoon character" prompt) |
 | 3 | Summer Vibes shells / sand dollar / pearls | 46–66% of light pixels < 0.05 — confident-zero carving | decor-sweep battery |
 | 4 | Summer Vibes cream water drop | **0.87+ (model was right!)** — the atmosphere law melted it | "water drop" melt exemption |
+| 5 | Summer Vibes letter shine rims | 66% < 0.3 — specular rim highlights scored as page, drained | **unpatchable** — thickness gates stop policy damage, model damage remains |
+| 6 | Summer Vibes pearl halos | smooth 0.05–0.95 gradient — flatten's 0.7 threshold facets it | partially (blob completion); softness class |
 
 Case 4 is the mirror image of the others: the policy cannot tell a glossy
 neutral element from milk residue, so the model must learn to make smoke
@@ -49,7 +51,10 @@ a larger figure.
 - **Assets:** real POD-style clipart with four-finger cartoon gloves/hands,
   white-filled limbs; marine/decor packs (shells with ribbed white
   interiors, sand dollars, pearls, bows); white fur animals (tiger/cat
-  chest+muzzle class from the duel).
+  chest+muzzle class from the duel); **glossy lettering with specular rim
+  highlights** (case 5 — the white shine strip between outline and fill
+  must be GT-solid; this is the one signature no local rule can separate
+  from a page remnant at the same position).
 - **Composites:** paste on white and warm-white pages (the Pumpkin lesson:
   [254,251,244]-class pages are in distribution), plus 10% tinted-cream
   pages labeled *solid-counters* style so Petersburg behavior survives.
