@@ -160,6 +160,16 @@ def poster_alpha(alpha: np.ndarray, keep_thresh: float = 0.3,
                 # separated by its min channel, not its tint.
                 if pg.min() > 240 and (pg.max() - pg.min()) < 18:
                     counters = "open"
+                # A CHROMATIC page is background (the MGAGLZ lesson,
+                # 2026-08-05): cream-doubles-as-ink is a NEUTRAL paper
+                # phenomenon — a lilac ([206,206,240]) or red page is
+                # unambiguous background and its counters are holes. The
+                # open-mode caps still protect page-colored elements
+                # (verified: happy_renkli red arc unchanged, raccoon belly
+                # intact). Neutral tinted paper (Petersburg 7, astronaut
+                # 13, cheese/dark 0) stays solid.
+                elif (pg.max() - pg.min()) >= 22:
+                    counters = "open"
                 # (2026-07-30) a dark-flat-page variant of this rule was
                 # tried (the overthink duel) and REVERTED the same day: it
                 # gutted full-bleed dark designs (the AImpala badge interior

@@ -71,7 +71,7 @@ def test_counters_auto_resolves_by_page_color():
     a = _scene()
     a[120:126, 40:46] = 0.0   # kucuk gercek counter (36px < pencere esigi)
     white_page = np.full((200, 200, 3), 250.0, dtype=np.float32)
-    cream_page = np.full((200, 200, 3), (246.0, 240.0, 214.0), dtype=np.float32)
+    cream_page = np.full((200, 200, 3), (238.0, 234.0, 228.0), dtype=np.float32)
     open_like = pm.poster_alpha(a, counters="auto", rgb=white_page, haze_matting=False)
     solid_like = pm.poster_alpha(a, counters="auto", rgb=cream_page, haze_matting=False)
     # beyaz sayfada her iki bosluk da acik
@@ -324,3 +324,15 @@ def test_buried_narrow_gap_between_thick_strokes_opens():
     rgb[a > 0.3] = 10.0
     out = pm.poster_alpha(a, counters="open", rgb=rgb, haze_matting=False)
     assert out[100:200, 148:150].max() < 0.1, "gömülü dar boşluk açılır"
+
+
+def test_chromatic_page_resolves_to_open():
+    """MGAGLZ dersi: lila/kırmızı gibi kromatik sayfa arka plandır — auto
+    open moda çözülür ve harf boşlukları açılır; krem-mürekkep (nötr)
+    davranışı test_counters_auto'da korunur."""
+    import numpy as np
+    a = _scene()
+    lilac = np.zeros((200, 200, 3), dtype=np.float32)
+    lilac[..., 0], lilac[..., 1], lilac[..., 2] = 206.0, 206.0, 240.0
+    out = pm.poster_alpha(a, counters="auto", rgb=lilac, haze_matting=False)
+    assert out[85:95, 45:55].max() == 0.0, "kromatik sayfada counter açık"
