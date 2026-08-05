@@ -47,10 +47,11 @@ What runs here that v7 does not — the output is produced by a **pipeline**, no
    foreground color instead of page-milk) and edge defringing (anti-aliased edge pixels take ink
    color from the interior, guarded so a pull can never move a color *toward* the page).
 
-5. **ComfyUI nodes and workflows** (`custom_nodes/lucida_poster_mode` on the ComfyUI side):
+5. **ComfyUI nodes and workflows** ([`comfyui/lucida_poster_mode`](comfyui/) in this repo):
    `LucidaReferee` (CLIP + full SAM3 in one node) and `LucidaPosterMode` (policy + finish),
-   wired in the `Lucida_Tam_Hakemli` workflow: Load Image → Remove Background (m35) +
-   Referee → Poster Mode → RGBA.
+   wired in [`docs/comfyui/lucida_design_expert.json`](docs/comfyui/lucida_design_expert.json):
+   Load Image → Remove Background (m35) + Referee → Poster Mode → RGBA. Install steps in
+   [`comfyui/README.md`](comfyui/README.md).
 
 The method is the same discipline as the main line: every rule exists because a real artwork
 failed an eye test, every fix is verified numerically and visually against the duel catalog
