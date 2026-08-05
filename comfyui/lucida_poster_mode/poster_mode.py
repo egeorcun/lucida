@@ -168,6 +168,7 @@ def poster_alpha(alpha: np.ndarray, keep_thresh: float = 0.3,
 
     # fill enclosed holes per kept component (bounded by max_hole_frac)
     filled = keep.copy()
+    windows = np.zeros_like(keep)   # solid-mode page windows (raccoon legs)
     comp_lab, cn = ndimage.label(keep)
     for i in range(1, cn + 1):
         comp = comp_lab == i
@@ -186,6 +187,19 @@ def poster_alpha(alpha: np.ndarray, keep_thresh: float = 0.3,
             if hole.sum() > max_hole_frac * bbox_area:
                 continue
             if counters == "solid":
+                # PAGE WINDOW exception (the raccoon-legs lesson,
+                # 2026-08-05): solid mode exists for the on-page look
+                # (Petersburg counters, AImpala badge interiors) — but a
+                # LARGE page-colored hole the model confidently removed is
+                # the page showing THROUGH the design (the gap between an
+                # animal's legs), and printing it solid glues a cream slab
+                # under the subject. Small counters and holes the model
+                # hesitated on keep the on-page behavior.
+                if pd_box is not None and hole.sum() > 0.0012 * h * w and \
+                        float(np.median(pd_box[hole])) < 0.3 * haze_scale and \
+                        float(a_box[hole].mean()) < 0.1:
+                    windows[y0:y1, x0:x1] |= hole
+                    continue
                 filled[y0:y1, x0:x1] |= hole
                 continue
             if subject_mask is not None and \
@@ -221,9 +235,11 @@ def poster_alpha(alpha: np.ndarray, keep_thresh: float = 0.3,
                 if hole.sum() >= 0.02 * comp_area:
                     filled[y0:y1, x0:x1] |= hole
 
-    if counters == "open":
+    if counters == "open" or windows.any():
         # delete kept islands floating inside holes: components fully
-        # enclosed by a filled-minus-kept region (counter drips)
+        # enclosed by a filled-minus-kept region (counter drips). In solid
+        # mode only OPENED page windows sweep their drips — a drip inside a
+        # solid-filled hole is part of the fill and must stay.
         whole = ndimage.binary_fill_holes(keep)
         comp_lab2, cn2 = ndimage.label(keep)
         sizes = ndimage.sum(keep, comp_lab2, range(1, cn2 + 1))
@@ -235,7 +251,8 @@ def poster_alpha(alpha: np.ndarray, keep_thresh: float = 0.3,
             comp = comp_lab2 == i
             grown = ndimage.binary_dilation(comp, iterations=3)
             # island whose neighborhood is inside another component's filled body
-            surroundings = whole & ~keep
+            surroundings = (whole & ~keep) if counters == "open" \
+                else (windows & ~keep)
             if (grown & ~comp & surroundings).sum() >= 0.5 * (grown & ~comp).sum():
                 keep &= ~comp
                 filled &= ~comp

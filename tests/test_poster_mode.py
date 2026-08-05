@@ -69,13 +69,17 @@ def test_invalid_mode_raises():
 def test_counters_auto_resolves_by_page_color():
     import numpy as np
     a = _scene()
+    a[120:126, 40:46] = 0.0   # kucuk gercek counter (36px < pencere esigi)
     white_page = np.full((200, 200, 3), 250.0, dtype=np.float32)
     cream_page = np.full((200, 200, 3), (246.0, 240.0, 214.0), dtype=np.float32)
     open_like = pm.poster_alpha(a, counters="auto", rgb=white_page, haze_matting=False)
     solid_like = pm.poster_alpha(a, counters="auto", rgb=cream_page, haze_matting=False)
-    # counter bolgesi: beyaz sayfada acik, krem sayfada dolu
+    # beyaz sayfada her iki bosluk da acik
     assert open_like[85:95, 45:55].max() == 0.0
-    assert solid_like[85:95, 45:55].min() > 0.99
+    # krem sayfa (rakun dersi, 2026-08-05): kucuk counter on-page solid kalir,
+    # BUYUK emin-sifir sayfa penceresi (bacak arasi) yine acilir
+    assert solid_like[120:126, 40:46].min() > 0.99
+    assert solid_like[85:95, 45:55].max() == 0.0
 
 
 def test_haze_matting_thins_draining_page_like_haze_only():
