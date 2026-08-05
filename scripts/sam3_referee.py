@@ -35,11 +35,25 @@ AUTO_SUBJECTS = (
     "badge emblem", "mascot", "robot", "skull", "car", "food", "cheese",
     "pumpkin", "ghost", "razor", "astronaut", "deer", "monster", "baby",
     "dinosaur", "fish",
+    # the Summer Vibes lesson (2026-08-05): scattered-object decor designs
+    # (shells, pearls, bows) had zero battery coverage and their whites
+    # were carved. POD decor motifs join the vocabulary.
+    "seashell", "starfish", "pearl", "coral", "ribbon bow", "heart",
+    "butterfly", "sun", "rainbow", "snowflake", "cupcake", "leaf plant",
 )
 AUTO_ABSTAIN = (
     "text lettering only", "typography quote design", "landscape scenery",
     "abstract pattern", "logo wordmark",
 )
+# decor designs come as scattered ensembles — one motif implies siblings
+# (Summer Vibes: shells AND pearls AND bows AND hearts). When CLIP smells
+# any decor motif, the whole sweep runs; SAM3 self-filters absent concepts.
+DECOR_SET = frozenset((
+    "seashell", "starfish", "pearl", "coral", "ribbon bow", "heart",
+    "butterfly", "sun", "rainbow", "snowflake", "cupcake", "leaf plant",
+))
+DECOR_SWEEP = ("seashell", "starfish", "pearl", "coral", "ribbon bow",
+               "heart")
 
 _clip = None
 _clip_proc = None
@@ -68,12 +82,20 @@ def auto_prompts(image: Image.Image, top_k: int = 4, prob_min: float = 0.10,
     ranked = sorted(zip(vocab, probs.tolist()), key=lambda kv: -kv[1])
     top = [(c, p) for c, p in ranked[:5] if p > prob_min]
     subjects = [c for c, _ in top if c in AUTO_SUBJECTS][:top_k]
+    # decor sniff runs BELOW the main gate: with 40+ classes an ensemble
+    # design splits its mass (ribbon bow 0.054, starfish 0.049 on Summer
+    # Vibes), so 2x-uniform evidence in the top-8 is enough to trigger the
+    # full sweep.
+    decor_gate = max(0.04, 2.0 / len(vocab))
+    if any(c in DECOR_SET and p > decor_gate for c, p in ranked[:8]):
+        subjects = list(dict.fromkeys(subjects + list(DECOR_SWEEP)))
     if not subjects or (top and top[0][0] in AUTO_ABSTAIN):
         return PROMPT_BATTERY
     # the Pumpkin lesson (2026-08-05): the multiplex SAM3 never found the
     # right glove under "glove"/"hand" at any threshold, but "cartoon
     # character" caught both hands — the whole-figure prompt always rides
-    # along as protective evidence.
+    # along as protective evidence. A missed concept costs inference time,
+    # never correctness, so the battery leans generous.
     return tuple(dict.fromkeys(subjects + ["cartoon character", "glove", "hand"]))
 
 _model = None
