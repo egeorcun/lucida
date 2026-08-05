@@ -545,19 +545,33 @@ def poster_alpha(alpha: np.ndarray, keep_thresh: float = 0.3,
                 else:
                     sel = region
                 out[sel] = np.minimum(out[sel], atm_curve[sel].astype(np.float32))
-            # SHADOW SOLIDIFICATION (the crispness verdict, 2026-08-05):
-            # preserving the model's soft alpha preserved its NOISE — the
-            # shadow came out as ragged half-kept patches. In print, a
-            # drop shadow IS ink: within the shadow zone the PIGMENT
-            # decides, sharply — visibly tinted pixels print solid, page
-            # pixels drop, the model's ragged alpha leaves the equation.
-            # Halftone-textured pixels are excluded so CHEESE smoke rims
-            # keep melting; the tint floor excludes YH milk residue.
-            shadow_solid = near_core & ~((ink_fine > 0.10) & (page_fine > 0.10)) \
-                & (pdist >= 0.15 * haze_scale) & (pdist < haze_scale) \
-                & (a > 0.05)
-            shadow_solid = ndimage.binary_opening(shadow_solid, iterations=2)
-            out[shadow_solid] = 1.0
+            # THE FAIL-SOFT GUARD (the Ideogram shadow verdict,
+            # 2026-08-05): the reference's shadows and watercolor washes
+            # are FULL and SMOOTH because nothing it does ever cuts into
+            # clearly tinted content — while our melt/open rules carved
+            # ragged chunks out of washes the model itself kept at
+            # 0.74+. Two-sided law:
+            # - the thin PAPER GAP between an outline and its shadow
+            #   (pd ~17, model hesitant) dies cleanly near ink cores —
+            #   it glowed as bright slivers on dark garments;
+            # - clearly tinted NON-halftone content (pd >= 0.25 scale)
+            #   never drops below the model's own alpha. CHEESE smoke is
+            #   halftone-textured and keeps melting; YH milk sits under
+            #   the tint floor and keeps dying.
+            tex = (ink_fine > 0.10) & (page_fine > 0.10)
+            # the paper gap hugs the THIN outline itself, which erosion
+            # destroys — so the cut zone is measured from UNERODED ink.
+            # The a<0.5 support test separates it from the SV letter-shine
+            # slivers (same color signature, model-confident): the model
+            # weakly refuses a paper gap (0.13) and confidently keeps a
+            # specular rim.
+            ink_solid = (a >= 0.75) & (pdist > 0.5 * haze_scale)
+            near_ink = ndimage.distance_transform_edt(~ink_solid) <= \
+                max(4.0, 0.004 * min(h, w))
+            gap_cut = near_ink & ~tex & (pdist < 0.45 * haze_scale) & (a < 0.6)
+            out[gap_cut] = 0.0
+            wash = ~tex & (pdist >= 0.25 * haze_scale)
+            out = np.where(wash & ~gap_cut, np.maximum(out, a), out).astype(np.float32)
     if lift is not None and lift.any():
         # LIFT EDGE REVERT (the speckled-glove lesson, 2026-08-05): even the
         # eroded SAM3 mask overshoots the ink contour at fingertips, so the
