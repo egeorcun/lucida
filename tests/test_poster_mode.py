@@ -311,3 +311,16 @@ def test_gradient_page_domain_gate_passes_through():
     grad[..., 2] = np.linspace(255, 0, 200)[None, :]
     out = pm.poster_alpha(a, counters="open", rgb=grad, haze_matting=False)
     assert np.allclose(out, np.clip(a, 0, 1)), "gradyan sayfada ham alfa döner"
+
+
+def test_buried_narrow_gap_between_thick_strokes_opens():
+    """R-boşluğu dersi: kalın gövdeler ARASINA gömülü ince sayfa boşluğu
+    (silüete uzak) cila değil gerçek boşluktur — beyaz sayfada açılır."""
+    import numpy as np
+    a = np.zeros((300, 300), dtype=np.float32)
+    a[50:250, 50:250] = 1.0                 # kalın blok
+    a[80:220, 146:152] = 0.05               # gömülü 6px'lik dik boşluk (dışa uzak)
+    rgb = np.full((300, 300, 3), 250.0, dtype=np.float32)
+    rgb[a > 0.3] = 10.0
+    out = pm.poster_alpha(a, counters="open", rgb=rgb, haze_matting=False)
+    assert out[100:200, 148:150].max() < 0.1, "gömülü dar boşluk açılır"

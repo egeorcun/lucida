@@ -219,10 +219,19 @@ def poster_alpha(alpha: np.ndarray, keep_thresh: float = 0.3,
                 # 2-3px sliver hugging a contour is a specular rim
                 # highlight — finish, not a hole. Compact tiny counters
                 # (a small 'e') fail the elongation test and still open.
+                # PROXIMITY condition (the R-gap lesson, 2026-08-05): a rim
+                # highlight sits just inside the thin outer outline (a few
+                # px from the silhouette); a narrow page gap BURIED between
+                # thick strokes (the R's legs, edge distance 11+) is a real
+                # hole and opens like any counter.
                 inner = ndimage.distance_transform_edt(hole)
                 thick = float(inner.max())
                 core = max(3.0, 0.003 * min(h, w))
-                if thick <= core and hole.sum() > 8.0 * thick * thick:
+                edge_dist = ndimage.distance_transform_edt(box_filled)
+                near_edge = float(edge_dist[hole].min()) <= \
+                    max(6.0, 0.006 * min(h, w))
+                if thick <= core and hole.sum() > 8.0 * thick * thick \
+                        and near_edge:
                     filled[y0:y1, x0:x1] |= hole
                 continue
             if float(a_box[hole].mean()) >= hole_alpha_gate:
