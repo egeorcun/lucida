@@ -545,6 +545,19 @@ def poster_alpha(alpha: np.ndarray, keep_thresh: float = 0.3,
                 else:
                     sel = region
                 out[sel] = np.minimum(out[sel], atm_curve[sel].astype(np.float32))
+            # SHADOW SOLIDIFICATION (the crispness verdict, 2026-08-05):
+            # preserving the model's soft alpha preserved its NOISE — the
+            # shadow came out as ragged half-kept patches. In print, a
+            # drop shadow IS ink: within the shadow zone the PIGMENT
+            # decides, sharply — visibly tinted pixels print solid, page
+            # pixels drop, the model's ragged alpha leaves the equation.
+            # Halftone-textured pixels are excluded so CHEESE smoke rims
+            # keep melting; the tint floor excludes YH milk residue.
+            shadow_solid = near_core & ~((ink_fine > 0.10) & (page_fine > 0.10)) \
+                & (pdist >= 0.15 * haze_scale) & (pdist < haze_scale) \
+                & (a > 0.05)
+            shadow_solid = ndimage.binary_opening(shadow_solid, iterations=2)
+            out[shadow_solid] = 1.0
     if lift is not None and lift.any():
         # LIFT EDGE REVERT (the speckled-glove lesson, 2026-08-05): even the
         # eroded SAM3 mask overshoots the ink contour at fingertips, so the
