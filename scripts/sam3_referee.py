@@ -40,6 +40,7 @@ AUTO_SUBJECTS = (
     # were carved. POD decor motifs join the vocabulary.
     "seashell", "starfish", "pearl", "coral", "ribbon bow", "heart",
     "butterfly", "sun", "rainbow", "snowflake", "cupcake", "leaf plant",
+    "water drop",
 )
 AUTO_ABSTAIN = (
     "text lettering only", "typography quote design", "landscape scenery",
@@ -51,9 +52,10 @@ AUTO_ABSTAIN = (
 DECOR_SET = frozenset((
     "seashell", "starfish", "pearl", "coral", "ribbon bow", "heart",
     "butterfly", "sun", "rainbow", "snowflake", "cupcake", "leaf plant",
+    "water drop",
 ))
 DECOR_SWEEP = ("seashell", "starfish", "pearl", "coral", "ribbon bow",
-               "heart")
+               "heart", "water drop")
 
 _clip = None
 _clip_proc = None
