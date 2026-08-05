@@ -449,6 +449,25 @@ def poster_alpha(alpha: np.ndarray, keep_thresh: float = 0.3,
             atmosphere = ((ink_fine > 0.10) & (page_fine > 0.10)) \
                 | (pdist < 0.5 * haze_scale) \
                 | ((pdist < haze_scale) & (chroma < 25.0))
+            # DROP-SHADOW exemption (the Jesus lesson, 2026-08-05): the
+            # neutral soft band hugging a THICK confident stroke is the
+            # element's drop shadow, not milk — the model renders it at
+            # ~0.45 and the density law melted it to patchy remnants.
+            # Cores are eroded so halftone DOTS (small) vanish and only
+            # glyph/element bodies remain; CHEESE smoke sits far from any
+            # surviving core and still melts.
+            core_er = max(4, int(0.005 * min(h, w)))
+            # core = thick INK-colored confident bodies — alpha confidence
+            # alone would crown the model's own milk bias as a core (the
+            # very thing the density law overrides).
+            core = ndimage.binary_erosion(
+                (a >= 0.75) & (pdist > 0.5 * haze_scale), iterations=core_er)
+            near_core = ndimage.distance_transform_edt(~core) <= \
+                max(8.0, 0.008 * min(h, w))
+            # ...and the pixel itself must carry shadow TINT: milk remnants
+            # hugging ink sit at pd < 15 and must still melt (the YH
+            # letter-gap residue), a shadow body sits at pd 25-50.
+            atmosphere &= ~(near_core & (pdist >= 0.15 * haze_scale))
             wlab, wn = ndimage.label(pdist < 0.3 * haze_scale)
             if wn:
                 wsizes = ndimage.sum(np.ones_like(pdist), wlab, range(1, wn + 1))
