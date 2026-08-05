@@ -293,3 +293,17 @@ def test_color_topology_rule_judges_whole_blobs_not_mask_slivers():
                           subject_mask=sm)
     assert out[110:150, 110:150].min() > 0.99, "yaprak analoğu bütün kalır"
     assert out[310:320, 310:320].max() == 0.0, "gerçek counter yine açılır"
+
+
+def test_gradient_page_domain_gate_passes_through():
+    """Gradyan-sayfa dersi: politika tek-sayfa-rengi varsayımına dayanır;
+    silinen bölge gradyansa (std yüksek) politika kendini kapatır ve modelin
+    ham alfası aynen döner."""
+    import numpy as np
+    a = _scene()
+    grad = np.zeros((200, 200, 3), dtype=np.float32)
+    grad[..., 0] = np.linspace(0, 255, 200)[None, :]
+    grad[..., 1] = 128.0
+    grad[..., 2] = np.linspace(255, 0, 200)[None, :]
+    out = pm.poster_alpha(a, counters="open", rgb=grad, haze_matting=False)
+    assert np.allclose(out, np.clip(a, 0, 1)), "gradyan sayfada ham alfa döner"

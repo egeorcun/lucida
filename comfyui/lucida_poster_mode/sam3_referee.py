@@ -100,6 +100,42 @@ def auto_prompts(image: Image.Image, top_k: int = 4, prob_min: float = 0.10,
     # never correctness, so the battery leans generous.
     return tuple(dict.fromkeys(subjects + ["cartoon character", "glove", "hand"]))
 
+DOMAIN_DESIGN = (
+    "a flat graphic design on a plain background",
+    "a sticker or t-shirt print design",
+    "an illustration or cartoon artwork",
+)
+DOMAIN_PHOTO = (
+    "a photograph of a real object or scene",
+    "a photo with natural lighting and shadows",
+)
+
+
+def design_domain(image: Image.Image, device: str | None = None) -> bool:
+    """True when the image is design artwork (the poster policy's domain),
+    False for photographs. The Medal lesson (2026-08-05): a photo on a
+    flat backdrop passes the page-uniformity gate, but the poster policy
+    still destroys its continuous tone — domain is a semantic question,
+    so CLIP answers it. Ties break toward design (the policy's own
+    flat-page gate is the second line of defense)."""
+    global _clip, _clip_proc
+    if device is None:
+        device = "mps" if torch.backends.mps.is_available() else (
+            "cuda" if torch.cuda.is_available() else "cpu")
+    if _clip is None:
+        from transformers import CLIPModel, CLIPProcessor
+        _clip = CLIPModel.from_pretrained("openai/clip-vit-base-patch32").to(device).eval()
+        _clip_proc = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
+    texts = list(DOMAIN_DESIGN) + list(DOMAIN_PHOTO)
+    inputs = _clip_proc(text=texts, images=image, return_tensors="pt",
+                        padding=True).to(device)
+    with torch.no_grad():
+        probs = _clip(**inputs).logits_per_image.softmax(dim=-1)[0]
+    p_design = float(probs[:len(DOMAIN_DESIGN)].sum())
+    p_photo = float(probs[len(DOMAIN_DESIGN):].sum())
+    return p_design >= p_photo
+
+
 _model = None
 _processor = None
 

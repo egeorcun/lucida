@@ -58,6 +58,27 @@ def poster_alpha(alpha: np.ndarray, keep_thresh: float = 0.3,
     h, w = a.shape
 
     if rgb is not None:
+        # FLAT-PAGE DOMAIN GATE (the gradient-page lesson, 2026-08-05):
+        # every rule below assumes a design printed on a page with ONE
+        # color. On a gradient or photographic background that assumption
+        # inverts the rules into damage — chromatic rescue resurrects page
+        # corners far from the median "page color" as ink, and the flatten
+        # destroys continuous tone. The spread measure is MAD, not std:
+        # the probe region also contains chromatic elements the model
+        # erased (the rainbow swoosh), and a robust median spread ignores
+        # that minority while a gradient page deviates in every pixel.
+        # Measured separation: design pages and all 13 duel pages <= 7,
+        # gradient pages 13+, photos far above. Out of domain, the policy
+        # declines to act and hands back the model's own alpha.
+        probe0 = a < 0.3
+        if probe0.sum() > 0.05 * h * w:
+            pr = np.asarray(rgb, dtype=np.float32)[probe0].reshape(-1, 3)
+            med = np.median(pr, axis=0)
+            page_mad = float(np.median(np.abs(pr - med), axis=0).mean())
+            if page_mad > 12.0:
+                return np.clip(a, 0.0, 1.0)
+
+    if rgb is not None:
         # CHROMATIC RESCUE (the rainbow lesson, 2026-07-28): on a flat-page
         # design a pixel whose color sits FAR from the page color is ink by
         # definition — yet the model erases wide soft-gradient elements

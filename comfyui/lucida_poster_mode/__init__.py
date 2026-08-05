@@ -19,6 +19,9 @@ class LucidaPosterMode:
             "mask": ("MASK",),
             "counters": (["auto", "open", "solid"],),
             "haze": (["auto", "on", "off"],),
+            # auto: CLIP fotograf/tasarim ayrimi yapar; fotografta politika
+            # kendini kapatir ve ham alfa doner (Medal dersi, 2026-08-05).
+            "domain": (["auto", "design"],),
         }, "optional": {
             "subject_mask": ("MASK",),   # SAM3 hakemi: özne örnekleri (koruyucu kanıt)
         }}
@@ -31,7 +34,8 @@ class LucidaPosterMode:
     # rgba: dogrudan Save Image'a baglanacak nihai RGBA cikti.
     # mask: on plan=1 konvansiyonu — JoinImageWithAlpha kullanacaksan once
     # InvertMask gerekir (Join, maskeyi 1-alpha olarak yorumlar).
-    def apply(self, image, mask, counters="auto", haze="auto", subject_mask=None):
+    def apply(self, image, mask, counters="auto", haze="auto", domain="auto",
+              subject_mask=None):
         out_rgba, out_masks, out_prev = [], [], []
         n = mask.shape[0]
         for i in range(n):
@@ -43,6 +47,19 @@ class LucidaPosterMode:
                     torch.from_numpy(a)[None, None], size=img_t.shape[:2],
                     mode="bilinear", align_corners=False)[0, 0].numpy()
             rgb = img_t.numpy() * 255.0
+            if domain == "auto":
+                from PIL import Image as PILImage
+                from .sam3_referee import design_domain
+                if not design_domain(PILImage.fromarray(rgb.astype(np.uint8))):
+                    # fotograf: politika ve finish atlanir, ham alfa doner
+                    print("[LucidaPosterMode] foto alan -> politika atlandi")
+                    ap = np.clip(a, 0.0, 1.0)
+                    out_masks.append(torch.from_numpy(ap))
+                    rgba = np.concatenate([rgb / 255.0, ap[..., None]], axis=-1)
+                    out_rgba.append(torch.from_numpy(rgba.astype(np.float32)))
+                    comp = rgb * ap[..., None] / 255.0
+                    out_prev.append(torch.from_numpy(comp.astype(np.float32)))
+                    continue
             hm = {"auto": "auto", "on": True, "off": False}[haze]
             sm = None
             if subject_mask is not None:
