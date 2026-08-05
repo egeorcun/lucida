@@ -3,6 +3,9 @@
 The `design-expert` pipeline as ComfyUI custom nodes: **Lucida m35** weights +
 poster policy + SAM3 semantic referee + finish package (decontaminate, defringe).
 
+No-install version: the same pipeline runs in the browser at
+[spaces/egeorcun/lucida-design](https://huggingface.co/spaces/egeorcun/lucida-design).
+
 ## Install
 
 1. **Nodes** — copy the node package into ComfyUI:

@@ -18,7 +18,8 @@ illustrations, and print-style designs (stickers, tees). Weights are on Hugging 
 > specialization effort that goes beyond it for one domain: **print/POD design artwork** —
 > posters, tee graphics, stickers, the kind of layered vector/watercolor compositions sold on
 > Etsy. The quality anchor is the commercial reference (Ideogram remove-background), judged by
-> eye on real artwork, not only by benchmark MAE.
+> eye on real artwork, not only by benchmark MAE. Try the full pipeline in the browser:
+> **[lucida-design space](https://huggingface.co/spaces/egeorcun/lucida-design)**.
 
 What runs here that v7 does not — the output is produced by a **pipeline**, not a bare model:
 
