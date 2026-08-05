@@ -93,7 +93,10 @@ def poster_alpha(alpha: np.ndarray, keep_thresh: float = 0.3,
         # instance are the subject's own whites — lift them to solid before
         # any silhouette decision.
         lift = sm & (a > 0.05) & (a < keep_thresh + 0.4)
+        lift_pre = a.copy()   # the model's own opinion, for the edge revert
         a = np.where(lift, np.maximum(a, 0.95), a)
+    else:
+        lift = None
     solid = a > keep_thresh
     lab, n = ndimage.label(solid)
     if n == 0:
@@ -114,7 +117,12 @@ def poster_alpha(alpha: np.ndarray, keep_thresh: float = 0.3,
             probe = ~keep
             if probe.sum() > 500:
                 pg = np.median(rgb[probe].reshape(-1, 3), axis=0)
-                if pg.min() > 243 and (pg.max() - pg.min()) < 8:
+                # BRIGHTNESS separates, not neutrality (the Pumpkin lesson,
+                # 2026-08-05): a warm white page ([254,251,244], spread 10)
+                # is still a white page and its counters are holes; the
+                # cream that doubles as ink (Petersburg, [236,233,229]) is
+                # separated by its min channel, not its tint.
+                if pg.min() > 240 and (pg.max() - pg.min()) < 18:
                     counters = "open"
                 # (2026-07-30) a dark-flat-page variant of this rule was
                 # tried (the overthink duel) and REVERTED the same day: it
@@ -406,6 +414,23 @@ def poster_alpha(alpha: np.ndarray, keep_thresh: float = 0.3,
                 else:
                     sel = region
                 out[sel] = np.minimum(out[sel], atm_curve[sel].astype(np.float32))
+    if lift is not None and lift.any():
+        # LIFT EDGE REVERT (the speckled-glove lesson, 2026-08-05): even the
+        # eroded SAM3 mask overshoots the ink contour at fingertips, so the
+        # lift turns a strip of PAGE pixels solid right at the silhouette —
+        # dotted white specks on dark garments. The referee speaks about
+        # regions, never edges: a lifted pixel that is page-colored, weakly
+        # scored by the model itself, and touching the final removed page is
+        # page — hand it back to the model's own opinion. Whites sealed
+        # behind an ink contour (glove fill) sit farther than 3 px from the
+        # removed page and are untouched; open subject whites (fur) return
+        # to softness, never to a hole.
+        removed_f = out < 0.05
+        near_rm = ndimage.distance_transform_edt(~removed_f) <= 3.0
+        pagey = (page_dist < 60.0) if page_dist is not None \
+            else np.ones_like(removed_f)
+        revert = lift & near_rm & pagey & (lift_pre < keep_thresh)
+        out[revert] = np.minimum(out[revert], lift_pre[revert])
     return np.clip(out, 0.0, 1.0)
 
 
@@ -433,18 +458,28 @@ def decontaminate(rgb: np.ndarray, alpha: np.ndarray,
 
 
 def defringe(rgb: np.ndarray, alpha: np.ndarray, band: int = 3,
-             max_pull: int = 8) -> np.ndarray:
+             max_pull: int = 8, page: np.ndarray | None = None) -> np.ndarray:
     """Edge fringe removal (the glowing-P lesson, 2026-08-05): anti-aliased
     edge pixels carry page-contaminated color at near-full alpha, so black
     art wears a bright line on dark garments. decontaminate() cannot see
     them (alpha ~1). The fix is the classic defringe: pull each edge-band
     pixel's COLOR from its nearest safe-interior pixel — ink color runs to
     the very edge, softness lives in alpha alone. Thin strokes with no
-    reachable interior (distance > max_pull) keep their color."""
+    reachable interior (distance > max_pull) keep their color.
+
+    PAGE-DISTANCE GUARD (the speckled-glove lesson, 2026-08-05): a thin ink
+    contour vanishes under the interior erosion, so its nearest "interior"
+    is the fill on the FAR side (white glove) and the pull paints the black
+    outline white — a dotted bright fringe. Fringe is page contamination,
+    so a legal pull must move color AWAY from the page: skip any pull whose
+    source sits closer to the page color than the pixel already is."""
     rgb = rgb.astype(np.float32)
     a = alpha.astype(np.float32)
     kept = a > 0.02
     boundary_out = ~kept
+    if page is None:
+        page = (np.median(rgb[boundary_out].reshape(-1, 3), axis=0)
+                if boundary_out.sum() > 500 else np.float32([255.0, 255.0, 255.0]))
     dist_out = ndimage.distance_transform_edt(~boundary_out)
     edge_band = kept & (dist_out <= band)
     interior = ndimage.binary_erosion(a > 0.9, iterations=band + 1)
@@ -454,5 +489,10 @@ def defringe(rgb: np.ndarray, alpha: np.ndarray, band: int = 3,
                                                         return_indices=True)
     out = rgb.copy()
     sel = edge_band & (dist_int <= max_pull)
-    out[sel] = rgb[iy[sel], ix[sel]]
+    src = rgb[iy[sel], ix[sel]]
+    pd_src = np.abs(src - page).sum(axis=-1)
+    pd_cur = np.abs(rgb[sel] - page).sum(axis=-1)
+    legal = pd_src > pd_cur
+    ys, xs = np.nonzero(sel)
+    out[ys[legal], xs[legal]] = src[legal]
     return out

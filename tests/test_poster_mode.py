@@ -227,3 +227,46 @@ def test_defringe_pulls_ink_color_to_the_edge():
     rgb2[5, 5:15] = 80.0; a2[5, 5:15] = 0.9
     out2 = pm.defringe(rgb2, a2)
     assert float(out2[5, 10, 0]) == 80.0, "ulaşılamaz iç -> renk korunur"
+
+
+def test_defringe_never_pulls_color_toward_page():
+    """Benekli eldiven dersi: ince siyah kontur, iç erozyonunda yok olunca
+    en yakın 'iç' karşı taraftaki BEYAZ dolgu olur — çekim rengi sayfaya
+    YAKLAŞTIRIYORSA yasaktır, kontur siyah kalır."""
+    import numpy as np
+    rgb = np.full((70, 70, 3), 250.0, dtype=np.float32)   # beyaz sayfa
+    alpha = np.zeros((70, 70), dtype=np.float32)
+    alpha[20:50, 20:50] = 1.0
+    rgb[20:50, 20:50] = 10.0                              # siyah kontur bloğu
+    rgb[24:46, 24:46] = 252.0                             # sayfa-beyazı dolgu (eldiven içi)
+    out = pm.defringe(rgb, alpha)
+    assert float(out[20, 35, 0]) < 30, "kontur kenarı siyah kalır, beyaza boyanmaz"
+    assert float(out[21, 35, 0]) < 30, "bant içi kontur pikseli de siyah kalır"
+
+
+def test_lift_edge_revert_returns_page_strip_to_model_opinion():
+    """Hakem bölgeler hakkında konuşur, kenarlar hakkında asla: SAM3 taşması
+    ile kaldırılan sayfa-renkli zayıf şerit, nihai silinen bölgeye bitişikse
+    modelin kendi kanaatine geri döner; içerideki özne beyazı dokunulmaz."""
+    import numpy as np
+    a = np.zeros((200, 200), dtype=np.float32)
+    a[55:145, 55:145] = 0.15                              # sayfa kalıntısı şeridi (model: sayfa)
+    a[60:140, 60:140] = 0.6                               # öznenin kendi beyazı
+    rgb = np.full((200, 200, 3), 250.0, dtype=np.float32) # her şey sayfa-renkli
+    sm = np.zeros((200, 200), dtype=bool)
+    sm[50:150, 50:150] = True                             # taşmalı hakem maskesi
+    out = pm.poster_alpha(a, counters="open", rgb=rgb, haze_matting=False,
+                          subject_mask=sm)
+    assert float(out[100, 100]) > 0.99, "özne beyazı solid kalır"
+    assert float(out[56, 100]) <= 0.15 + 1e-6, "silinene bitişik şerit geri döner"
+
+
+def test_counters_open_on_warm_white_page():
+    """Pumpkin dersi: ılık beyaz sayfa ([254,251,244]) da beyaz sayfadır —
+    harf içi boşluklar açılır; krem/mürekkep sayfa (Petersburg) solid kalır."""
+    import numpy as np
+    a = _scene()
+    warm = np.zeros((200, 200, 3), dtype=np.float32)
+    warm[..., 0], warm[..., 1], warm[..., 2] = 254.0, 251.0, 244.0
+    out = pm.poster_alpha(a, counters="auto", rgb=warm, haze_matting=False)
+    assert out[85:95, 45:55].max() == 0.0, "ılık beyaz sayfada counter açık"
