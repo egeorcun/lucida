@@ -54,6 +54,10 @@ What runs here that v7 does not — the output is produced by a **pipeline**, no
    Load Image → Remove Background (m35) + Referee → Poster Mode → RGBA. Install steps in
    [`comfyui/README.md`](comfyui/README.md).
 
+A three-way benchmark of this branch (v7 vs the m35 pipeline vs Ideogram, with galleries and
+an honest reading of where the metric and the eye disagree) lives in
+[docs/design-expert-benchmark.md](docs/design-expert-benchmark.md).
+
 The method is the same discipline as the main line: every rule exists because a real artwork
 failed an eye test, every fix is verified numerically and visually against the duel catalog
 (`docs/superpowers/specs/2026-07-30-ideogram-study.md`), and what a rule cannot fix honestly —
