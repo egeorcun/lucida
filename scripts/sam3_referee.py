@@ -70,7 +70,11 @@ def auto_prompts(image: Image.Image, top_k: int = 4, prob_min: float = 0.10,
     subjects = [c for c, _ in top if c in AUTO_SUBJECTS][:top_k]
     if not subjects or (top and top[0][0] in AUTO_ABSTAIN):
         return PROMPT_BATTERY
-    return tuple(dict.fromkeys(subjects + ["glove", "hand"]))
+    # the Pumpkin lesson (2026-08-05): the multiplex SAM3 never found the
+    # right glove under "glove"/"hand" at any threshold, but "cartoon
+    # character" caught both hands — the whole-figure prompt always rides
+    # along as protective evidence.
+    return tuple(dict.fromkeys(subjects + ["cartoon character", "glove", "hand"]))
 
 _model = None
 _processor = None

@@ -270,3 +270,26 @@ def test_counters_open_on_warm_white_page():
     warm[..., 0], warm[..., 1], warm[..., 2] = 254.0, 251.0, 244.0
     out = pm.poster_alpha(a, counters="auto", rgb=warm, haze_matting=False)
     assert out[85:95, 45:55].max() == 0.0, "ılık beyaz sayfada counter açık"
+
+
+def test_color_topology_rule_judges_whole_blobs_not_mask_slivers():
+    """Yaprak ısırığı dersi: hakem istisnası blob'u maske sınırında bölerse,
+    dışarıda kalan kıymık boyut kapağının altına düşüp açılıyordu (model 0.98
+    dese bile). Bütün blob etiketlenir; boyut ve hakem örtüşmesi blob
+    düzeyinde yargılanır. Gerçek counter (küçük, örtüşmesiz) yine açılır."""
+    import numpy as np
+    h = w = 500
+    a = np.zeros((h, w), dtype=np.float32)
+    rgb = np.full((h, w, 3), 250.0, dtype=np.float32)
+    # A: mürekkep halka + büyük sayfa-renkli iç (yaprak analoğu, model emin)
+    a[100:160, 100:160] = 1.0; rgb[100:160, 100:160] = 10.0
+    a[110:150, 110:150] = 1.0; rgb[110:150, 110:150] = 250.0
+    # B: mürekkep halka + küçük sayfa-renkli iç (counter analoğu)
+    a[300:330, 300:330] = 1.0; rgb[300:330, 300:330] = 10.0
+    a[310:320, 310:320] = 1.0; rgb[310:320, 310:320] = 250.0
+    sm = np.zeros((h, w), dtype=bool)
+    sm[95:155, 95:149] = True   # A'nın çoğunu örter; sağda kıymık bırakır
+    out = pm.poster_alpha(a, counters="open", rgb=rgb, haze_matting=False,
+                          subject_mask=sm)
+    assert out[110:150, 110:150].min() > 0.99, "yaprak analoğu bütün kalır"
+    assert out[310:320, 310:320].max() == 0.0, "gerçek counter yine açılır"

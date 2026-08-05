@@ -267,12 +267,21 @@ def poster_alpha(alpha: np.ndarray, keep_thresh: float = 0.3,
         # referee the rule stays off entirely.
         ink = page_dist > 0.5 * haze_scale
         enclosed = ndimage.binary_fill_holes(ink) & ~ink
-        pagey_blob = enclosed & (page_dist < 0.3 * haze_scale) & \
-            ~subject_mask.astype(bool)
+        # BLOB-LEVEL referee exemption (the petal-bite lesson, 2026-08-05):
+        # subtracting the subject mask BEFORE labeling chopped a petal fill
+        # in two along the eroded mask boundary — the sliver outside the
+        # mask fell under the size cap and was opened even though the model
+        # scored it 0.98. Label the intact color blobs first; a blob is
+        # exempt when the referee covers it, and the size cap judges whole
+        # elements, never mask-boundary slivers.
+        pagey_blob = enclosed & (page_dist < 0.3 * haze_scale)
         blab, bn = ndimage.label(pagey_blob)
         if bn:
             bsizes = ndimage.sum(pagey_blob, blab, range(1, bn + 1))
-            for bi in np.nonzero((bsizes > 60) & (bsizes < 0.0012 * h * w))[0]:
+            smfrac = ndimage.mean(subject_mask.astype(np.float32),
+                                  blab, range(1, bn + 1))
+            for bi in np.nonzero((bsizes > 60) & (bsizes < 0.0012 * h * w)
+                                 & (smfrac < 0.4))[0]:
                 out[blab == (bi + 1)] = 0.0
 
     if haze_matting == "auto" and rgb is not None:
