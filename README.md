@@ -12,6 +12,52 @@ specifically for the cases where general-purpose background removers fall apart:
 objects, camouflaged subjects, logos and typography with soft shadows, glow/VFX effects,
 illustrations, and print-style designs (stickers, tees). Weights are on Hugging Face: [egeorcun/lucida](https://huggingface.co/egeorcun/lucida) (MIT). **Try it in your browser (ZeroGPU, a few seconds per image): [live demo](https://huggingface.co/spaces/egeorcun/lucida-demo).**
 
+## This branch: `design-expert`
+
+> The published model (Hugging Face, `main` branch) is **lucida-v7**. This branch is the
+> specialization effort that goes beyond it for one domain: **print/POD design artwork** —
+> posters, tee graphics, stickers, the kind of layered vector/watercolor compositions sold on
+> Etsy. The quality anchor is the commercial reference (Ideogram remove-background), judged by
+> eye on real artwork, not only by benchmark MAE.
+
+What runs here that v7 does not — the output is produced by a **pipeline**, not a bare model:
+
+1. **Blended weights (`lucida-m35`).** A checkpoint blend of the background-purity soup
+   (v8–v13 lineage) with the v18 limb/atmosphere campaign (0.65/0.35), verified against the
+   203-image benchmark for zero category regression before adoption. v7 stays the published
+   general-purpose release; m35 is the design-branch working model.
+
+2. **The poster policy (`scripts/poster_mode.py`).** A training-free decision layer over the raw
+   alpha, built rule by rule from eye-test duels against the commercial reference: decisive
+   flattening (flat art prints flat), automatic counter open/solid resolution (a warm-white page
+   is still a white page; a cream page doubles as ink), chromatic rescue for saturated ink the
+   model erased, hole rules with size caps and thickness gates (a real letter counter has a core;
+   a 2-px sliver hugging a contour is a specular highlight), and an atmosphere law fitted
+   pixel-by-pixel to the reference's smoke/glow behavior.
+
+3. **The SAM3 semantic referee (`scripts/sam3_referee.py`).** The reference's single biggest edge
+   is *semantic* knowledge of subject-owned whites (white fur, gloves, shell interiors — pixels
+   that look exactly like the page). The referee rents that knowledge: CLIP zero-shot picks
+   concept prompts (with a decor-ensemble sweep), SAM3 segments them, and the union enters the
+   policy as **protective-only** evidence — it can save subject whites, it can never delete
+   anything. Referee decisions are applied blob-level, never pixel-level, so mask geometry never
+   prints into the alpha.
+
+4. **The finish package.** Color decontamination (semi-transparent pixels carry recovered
+   foreground color instead of page-milk) and edge defringing (anti-aliased edge pixels take ink
+   color from the interior, guarded so a pull can never move a color *toward* the page).
+
+5. **ComfyUI nodes and workflows** (`custom_nodes/lucida_poster_mode` on the ComfyUI side):
+   `LucidaReferee` (CLIP + full SAM3 in one node) and `LucidaPosterMode` (policy + finish),
+   wired in the `Lucida_Tam_Hakemli` workflow: Load Image → Remove Background (m35) +
+   Referee → Poster Mode → RGBA.
+
+The method is the same discipline as the main line: every rule exists because a real artwork
+failed an eye test, every fix is verified numerically and visually against the duel catalog
+(`docs/superpowers/specs/2026-07-30-ideogram-study.md`), and what a rule cannot fix honestly —
+subject-whites the model scores as confident zero — is filed as training data for the next
+fine-tune (`docs/superpowers/specs/2026-08-05-v19-data-recipe.md`).
+
 ## Benchmark
 
 203 images, 9 categories, MAE against ground-truth alpha (lower is better). Row leaders in **bold**.
