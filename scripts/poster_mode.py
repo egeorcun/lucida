@@ -88,6 +88,21 @@ def poster_alpha(alpha: np.ndarray, keep_thresh: float = 0.3,
         # Lucida's own alpha.
         er = max(3, int(0.005 * min(h, w)))
         sm = ndimage.binary_erosion(sm, iterations=er)
+        # BLOB COMPLETION (the pearl-facet lesson, 2026-08-05): SAM3 masks
+        # are low-res polygons, and every pixel-level use of the mask
+        # (lift, melt exemption) printed that polygon boundary into the
+        # alpha as a faceted staircase. Referee decisions are blob-level:
+        # when the mask majority-covers a coherent hesitant blob (a pearl
+        # halo, a glove fill), the zone completes to the WHOLE blob so
+        # every downstream gate follows image structure, never mask
+        # geometry. Large fields (smoke) stay out via the size cap.
+        hes = (a > 0.05) & (a < keep_thresh + 0.4)
+        hlab, hn = ndimage.label(hes)
+        if hn:
+            hcov = ndimage.mean(sm.astype(np.float32), hlab, range(1, hn + 1))
+            hsz = ndimage.sum(hes, hlab, range(1, hn + 1))
+            for hi in np.nonzero((hcov > 0.5) & (hsz < 0.02 * h * w))[0]:
+                sm |= hlab == (hi + 1)
         subject_mask = sm
         # THE GLOVES RULE: hesitant page-colored pixels INSIDE a subject
         # instance are the subject's own whites — lift them to solid before
@@ -164,6 +179,16 @@ def poster_alpha(alpha: np.ndarray, keep_thresh: float = 0.3,
                 # stays open no matter how much the model hesitated. The
                 # size cap keeps big page-colored pockets (a daisy petal
                 # bay) printing solid — at petal scale white is ink.
+                # THICKNESS gate (the letter-shine lesson, 2026-08-05): a
+                # real counter has a core away from the ink; an elongated
+                # 2-3px sliver hugging a contour is a specular rim
+                # highlight — finish, not a hole. Compact tiny counters
+                # (a small 'e') fail the elongation test and still open.
+                inner = ndimage.distance_transform_edt(hole)
+                thick = float(inner.max())
+                core = max(3.0, 0.003 * min(h, w))
+                if thick <= core and hole.sum() > 8.0 * thick * thick:
+                    filled[y0:y1, x0:x1] |= hole
                 continue
             if float(a_box[hole].mean()) >= hole_alpha_gate:
                 # the model HESITATED here -> print solid (smoky glove) —
@@ -280,8 +305,15 @@ def poster_alpha(alpha: np.ndarray, keep_thresh: float = 0.3,
             bsizes = ndimage.sum(pagey_blob, blab, range(1, bn + 1))
             smfrac = ndimage.mean(subject_mask.astype(np.float32),
                                   blab, range(1, bn + 1))
+            # THICKNESS gate (the letter-shine lesson, 2026-08-05): a real
+            # counter has a core away from the ink; a specular rim
+            # highlight hugging a contour is a 2-3px sliver. Slivers with
+            # no core are finish, not holes — they stay.
+            core = max(3.0, 0.003 * min(h, w))
+            inner = ndimage.distance_transform_edt(pagey_blob)
+            bthick = ndimage.maximum(inner, blab, range(1, bn + 1))
             for bi in np.nonzero((bsizes > 60) & (bsizes < 0.0012 * h * w)
-                                 & (smfrac < 0.4))[0]:
+                                 & (smfrac < 0.4) & (bthick > core))[0]:
                 out[blab == (bi + 1)] = 0.0
 
     if haze_matting == "auto" and rgb is not None:
