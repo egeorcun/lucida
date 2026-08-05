@@ -559,19 +559,38 @@ def poster_alpha(alpha: np.ndarray, keep_thresh: float = 0.3,
             #   halftone-textured and keeps melting; YH milk sits under
             #   the tint floor and keeps dying.
             tex = (ink_fine > 0.10) & (page_fine > 0.10)
-            # the paper gap hugs the THIN outline itself, which erosion
-            # destroys — so the cut zone is measured from UNERODED ink.
-            # The a<0.5 support test separates it from the SV letter-shine
-            # slivers (same color signature, model-confident): the model
-            # weakly refuses a paper gap (0.13) and confidently keeps a
-            # specular rim.
-            ink_solid = (a >= 0.75) & (pdist > 0.5 * haze_scale)
-            near_ink = ndimage.distance_transform_edt(~ink_solid) <= \
-                max(4.0, 0.004 * min(h, w))
-            gap_cut = near_ink & ~tex & (pdist < 0.45 * haze_scale) & (a < 0.6)
-            out[gap_cut] = 0.0
             wash = ~tex & (pdist >= 0.25 * haze_scale)
-            out = np.where(wash & ~gap_cut, np.maximum(out, a), out).astype(np.float32)
+            out = np.where(wash, np.maximum(out, a), out).astype(np.float32)
+            # THE SMOOTH-RIBBON LAW (converged against the reference's
+            # own output, 2026-08-05): region means matched Ideogram but
+            # the eye did not — their shadow band is one CONTINUOUS
+            # gradient, ours was flattened 1.0 chunks with 0 holes. In
+            # thin soft ribbons hugging solid ink (the outline shadow +
+            # its paper gap, thickness <= ~5px), the model's alpha flows
+            # through a gaussian instead of the flatten: one smooth
+            # field, no seams. THICK soft blobs (the MGAGLZ sparkle,
+            # core 12px+) keep their solid treatment — thickness is the
+            # discriminator, measured per component.
+            ink_solid = (a >= 0.75) & (pdist > 0.5 * haze_scale)
+            dist_ink = ndimage.distance_transform_edt(~ink_solid)
+            softc = ~tex & (dist_ink <= max(10.0, 0.014 * min(h, w))) \
+                & (pdist >= 0.1 * haze_scale) & (pdist < 1.6 * haze_scale)
+            if softc.any():
+                # continuity comes from PIGMENT, not the model: the
+                # reference's ribbon runs unbroken along the outline
+                # because its alpha tracks ink density; the model's
+                # support is spotty (0.13 feather / 0.99 chunks) and any
+                # alpha-derived field inherits the gaps. No color gates —
+                # they fragmented the ribbon. Thickness is judged PER
+                # PIXEL so a thick soft blob touching the ring (the
+                # MGAGLZ sparkle) keeps its solid core and only its rim
+                # joins the flow. Density normalized so the reference's
+                # ~0.7 band level is matched (0.8-scale).
+                dens = np.clip(pdist / (0.8 * haze_scale), 0.0, 1.0)
+                smooth_d = ndimage.gaussian_filter(dens.astype(np.float32), 1.5)
+                thin_px = softc & (ndimage.distance_transform_edt(softc)
+                                   <= max(5.5, 0.005 * min(h, w)))
+                out[thin_px] = smooth_d[thin_px]
     if lift is not None and lift.any():
         # LIFT EDGE REVERT (the speckled-glove lesson, 2026-08-05): even the
         # eroded SAM3 mask overshoots the ink contour at fingertips, so the
